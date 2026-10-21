@@ -2300,7 +2300,7 @@ void bta_av_data_path (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
                 bt_stats_max(&bt_stats.a2d_av_list_max, list_length(p_scb->a2d_list));
             } else {
                 /* just dequeue it from the a2d_list */
-                if (list_length(p_scb->a2d_list) < 3) {
+                if (list_length(p_scb->a2d_list) < BTA_AV_A2D_LIST_MAX) {
                     /* put it back to the queue */
                     list_prepend(p_scb->a2d_list, p_buf);
                 } else {

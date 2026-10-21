@@ -163,6 +163,14 @@ enum {
 /* check number of buffers queued at L2CAP when this amount of buffers are queued to L2CAP */
 #define BTA_AV_QUEUE_DATA_CHK_NUM   L2CAP_HIGH_PRI_MIN_XMIT_QUOTA
 
+/* Rockbox: media packets held back while L2CAP is backed up, before the
+ * oldest is dropped. Upstream keeps 3 (about 60 ms at 328 kbps), so even a
+ * short fade turns into a gap; each one is a BTC_MEDIA_AA_BUF_SIZE buffer.
+ * With more, the backlog goes out once the link recovers. */
+#ifndef BTA_AV_A2D_LIST_MAX
+#define BTA_AV_A2D_LIST_MAX         20
+#endif
+
 /* the number of ACL links with AVDT */
 #define BTA_AV_NUM_LINKS            AVDT_NUM_LINKS
 
