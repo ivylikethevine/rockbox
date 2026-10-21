@@ -1589,16 +1589,22 @@ bt_status_t btc_av_execute_service(BOOLEAN b_enable, UINT8 tsep)
         /* Added BTA_AV_FEAT_NO_SCO_SSPD - this ensures that the BTA does not
          * auto-suspend av streaming on AG events(SCO or Call). The suspend shall
          * be initiated by the app/audioflinger layers */
+        /* Rockbox: BTA_AV_FEAT_MASTER - stream only as master. As slave the
+         * source can only send when the sink polls it and doesn't own the
+         * AFH map, which leaves little room for retransmissions on a weak
+         * link. */
         if (g_av_with_rc) {
             BTC_TRACE_WARNING("A2DP Enable with AVRC")
             BTA_AvEnable(BTA_SEC_AUTHENTICATE, BTA_AV_FEAT_NO_SCO_SSPD |
                         BTA_AV_FEAT_RCTG | BTA_AV_FEAT_METADATA | BTA_AV_FEAT_VENDOR |
-                        BTA_AV_FEAT_RCCT | BTA_AV_FEAT_ADV_CTRL | BTA_AV_FEAT_DELAY_RPT,
+                        BTA_AV_FEAT_RCCT | BTA_AV_FEAT_ADV_CTRL | BTA_AV_FEAT_DELAY_RPT |
+                        BTA_AV_FEAT_MASTER,
                         bte_av_callback);
             BTA_AvRegister(BTA_AV_CHNL_AUDIO, BTC_AV_SERVICE_NAME, 0, p_data_cback, &bta_av_a2d_cos, &bta_avrc_cos, tsep);
         } else {
             BTC_TRACE_WARNING("A2DP Enable without AVRC")
-            BTA_AvEnable(BTA_SEC_AUTHENTICATE, BTA_AV_FEAT_NO_SCO_SSPD | BTA_AV_FEAT_DELAY_RPT, bte_av_callback);
+            BTA_AvEnable(BTA_SEC_AUTHENTICATE, BTA_AV_FEAT_NO_SCO_SSPD | BTA_AV_FEAT_DELAY_RPT |
+                         BTA_AV_FEAT_MASTER, bte_av_callback);
             BTA_AvRegister(BTA_AV_CHNL_AUDIO, BTC_AV_SERVICE_NAME, 0, p_data_cback, &bta_av_a2d_cos, NULL, tsep);
         }
     } else {
