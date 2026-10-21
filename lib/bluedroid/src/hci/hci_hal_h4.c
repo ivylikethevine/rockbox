@@ -26,6 +26,7 @@
 #include "osi/thread.h"
 #include "osi/pkt_queue.h"
 #include "esp_bt_main.h"
+#include "osi/bt_stats.h"
 #if (BLE_ADV_REPORT_FLOW_CONTROL == TRUE)
 #include "osi/mutex.h"
 #include "osi/alarm.h"
@@ -626,6 +627,7 @@ static int host_recv_pkt_cb(uint8_t *data, uint16_t len)
     }
 
     bt_record_hci_data(data, len);
+    bt_stats_hci_rx(data, len);
 
 #if (BLE_FEAT_ISO_EN == TRUE)
     if (data[0] == DATA_TYPE_ISO) {

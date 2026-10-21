@@ -20,6 +20,7 @@
 #include <tlsf.h>
 #include "config.h"
 #include "osi/allocator.h"
+#include "osi/bt_stats.h"
 
 char *osi_strdup(const char *str)
 {
@@ -43,21 +44,27 @@ extern unsigned char btbuf[];
 #endif
 
 void *osi_malloc_func(size_t size) {
+    bt_stats_time_t t = bt_stats_now();
     void *ret = malloc_ex(size, btbuf);
+    bt_stats_alloc(bt_stats_now() - t, false);
     if (ret == NULL) {
         panicf("failed to allocate: osi_malloc(%d)", size);
     }
     return ret;
 }
 void *osi_calloc_func(size_t size) {
+    bt_stats_time_t t = bt_stats_now();
     void *ret = calloc_ex(1, size, btbuf);
+    bt_stats_alloc(bt_stats_now() - t, false);
     if (ret == NULL) {
         panicf("failed to allocate: osi_calloc(%d)", size);
     }
     return ret;
 }
 void osi_free_func(void *ptr) {
-    return free_ex(ptr, btbuf);
+    bt_stats_time_t t = bt_stats_now();
+    free_ex(ptr, btbuf);
+    bt_stats_alloc(bt_stats_now() - t, true);
 }
 #else
 void *osi_malloc_func(size_t size) {

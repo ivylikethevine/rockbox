@@ -29,6 +29,8 @@
 #include "general.h"
 #include "bt_hci.h"
 #include "esp_bluedroid_hci.h"
+#include "osi/bt_stats.h"
+#include "uart-x1000.h"
 #include "csr8811-agptekrocker.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,7 +110,8 @@ static void hci_send(uint8_t *data, uint16_t len)
     /* A packet that can't go out within a second is dropped, Bluedroid
      * times out on it rather than hanging here */
     mutex_lock(&hci_tx_mutex);
-    h4_send(data, len, HZ);
+    if(!h4_send(data, len, HZ))
+        bt_stats.tx_drops++;
     mutex_unlock(&hci_tx_mutex);
 }
 
@@ -138,6 +141,7 @@ static void hci_thread(void)
         if(n < 0)
             panicf("bt: H4 stream out of sync (%02x)", hci_recv_buf[0]);
 
+        bt_stats.drv_rx_errors = uart_rx_errors[PORT_UART0];
         hci_callbacks->notify_host_recv(hci_recv_buf, n);
     }
 }

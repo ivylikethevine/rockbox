@@ -30,6 +30,7 @@
 #include "tick.h"
 #include "tlsf.h"
 #include "misc.h"
+#include "osi/bt_stats.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -360,22 +361,97 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
 
 extern unsigned char btbuf[];
 
+/* Remote of the A2DP link, for polling its RSSI */
+static esp_bd_addr_t a2d_peer;
+static bool a2d_peer_valid;
+
 int bt_heap_info_action_callback(int action, struct gui_synclist *lists)
 {
+    static long next_rssi;
+
     switch (action) {
         case ACTION_NONE:
+            if (a2d_peer_valid && TIME_AFTER(current_tick, next_rssi) &&
+                esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
+                esp_bt_gap_read_rssi_delta(a2d_peer);
+                next_rssi = current_tick + HZ;
+            }
+            return ACTION_REDRAW;
+        case ACTION_STD_OK:
+            bt_stats_reset();
             return ACTION_REDRAW;
         default:
             return action;
     }
 }
 
+#define BT_INFO_FIXED_ITEMS 5
+
+/* Short lines, the most telling first: they have to fit a narrow screen */
+static const char *bt_stats_line(int line, char *buf, size_t len)
+{
+    const struct bt_stats *s = &bt_stats;
+    const uint32_t *g = s->nocp_gap;
+
+    switch (line) {
+    case 0:  snprintf(buf, len, "bitpool %u min %u", s->a2d_bitpool, s->a2d_bp_min); break;
+    case 1:  snprintf(buf, len, "bp down %lu up %lu", s->a2d_bp_down, s->a2d_bp_up); break;
+    case 2:  snprintf(buf, len, "avdrop %lu", s->a2d_av_drops); break;
+    case 3:  snprintf(buf, len, "avlist max %lu", s->a2d_av_list_max); break;
+    case 4:  snprintf(buf, len, "qdrop %lu", s->a2d_q_drops); break;
+    case 5:  snprintf(buf, len, "underflow %lu", s->a2d_underflow); break;
+    case 6:  snprintf(buf, len, "rssi %d", s->rssi); break;
+    case 7:  snprintf(buf, len, "acl full %lu", s->acl_full); break;
+    case 8:  snprintf(buf, len, "acl out %lu max %lu", s->acl_out, s->acl_out_max); break;
+    case 9:  snprintf(buf, len, "acl %ux%u", s->acl_bufs, s->acl_size); break;
+    case 10: snprintf(buf, len, "wait max %lums", s->nocp_gap_us_max / 1000); break;
+    case 11: snprintf(buf, len, "w<10 %lu", g[0]); break;
+    case 12: snprintf(buf, len, "w<20 %lu", g[1]); break;
+    case 13: snprintf(buf, len, "w<50 %lu", g[2]); break;
+    case 14: snprintf(buf, len, "w<100 %lu", g[3]); break;
+    case 15: snprintf(buf, len, "w>=100 %lu", g[4]); break;
+    case 16: snprintf(buf, len, "tx max %luus", s->tx_us_max); break;
+    case 17: snprintf(buf, len, "tx >4ms %lu", s->tx_slow); break;
+    case 18: snprintf(buf, len, "tx drop %lu", s->tx_drops); break;
+    case 19: snprintf(buf, len, "uart err %lu", s->drv_rx_errors); break;
+    case 20: snprintf(buf, len, "flush %lu", s->flush_occ); break;
+    case 21: snprintf(buf, len, "qos %lu hwerr %lu", s->qos_viol, s->hw_err); break;
+    case 22: snprintf(buf, len, "mode %u/%u chg %lu", s->mode, s->mode_intv, s->mode_chg); break;
+    case 23: snprintf(buf, len, "role %u chg %lu", s->role, s->role_chg); break;
+    case 24: snprintf(buf, len, "slots %u chg %lu", s->slots, s->slots_chg); break;
+    case 25: snprintf(buf, len, "ptype %04x", s->pkt_type); break;
+    case 26: snprintf(buf, len, "pcm short %lu", s->pcm_short); break;
+    case 27: snprintf(buf, len, "pcm silence %lu", s->pcm_silence); break;
+    case 28: snprintf(buf, len, "tick late %lu", s->a2d_tick_late); break;
+    case 29: snprintf(buf, len, "tick max %lums", s->a2d_tick_gap_us_max / 1000); break;
+    case 30: snprintf(buf, len, "work max %luus", s->a2d_work_us_max); break;
+    case 31: snprintf(buf, len, "q max %lu", s->a2d_q_max); break;
+    case 32: snprintf(buf, len, "rate %ukbps", s->a2d_bitrate); break;
+    case 33: snprintf(buf, len, "mtu %u", s->a2d_mtu); break;
+    case 34: snprintf(buf, len, "alloc max %luus", s->alloc_us_max); break;
+    case 35: snprintf(buf, len, "free max %luus", s->free_us_max); break;
+    case 36: snprintf(buf, len, "alloc >200us %lu", s->alloc_slow); break;
+    case 37: snprintf(buf, len, "tx %lu rx %lu", s->tx_pkts, s->rx_pkts); break;
+    default:
+        return NULL;
+    }
+
+    return buf;
+}
+
+#define BT_INFO_STATS_ITEMS 38
+
 const char * bt_heap_info_getname(int selected_item, void * data, char * buffer, size_t buffer_len)
 {
-    switch (selected_item) {
+    if (selected_item < BT_INFO_STATS_ITEMS) {
+        const char *s = bt_stats_line(selected_item, buffer, buffer_len);
+        return s ? s : "Unknown item!!";
+    }
+
+    switch (selected_item - BT_INFO_STATS_ITEMS) {
         case 0:
 #ifndef SIMULATOR
-            snprintf(buffer, buffer_len, "heap usage: %d/%d", get_used_size(btbuf), get_max_size(btbuf));
+            snprintf(buffer, buffer_len, "heap %d/%d", get_used_size(btbuf), get_max_size(btbuf));
             return buffer;
 #else
             return "this is sim build you dummy";
@@ -383,10 +459,10 @@ const char * bt_heap_info_getname(int selected_item, void * data, char * buffer,
         case 1: {
             const uint8_t *addr = esp_bt_dev_get_address();
             if (addr) {
-                snprintf(buffer, buffer_len, "MAC addr: " ESP_BD_ADDR_STR, ESP_BD_ADDR_HEX(addr));
+                snprintf(buffer, buffer_len, ESP_BD_ADDR_STR, ESP_BD_ADDR_HEX(addr));
                 return buffer;
             } else {
-                return "MAC addr: unknown";
+                return "MAC unknown";
             }
         }
         case 2:
@@ -421,7 +497,8 @@ bool bt_heap_info(void)
 {
     struct simplelist_info info;
 
-    simplelist_info_init(&info, "Bluetooth debug info:", 5, NULL);
+    simplelist_info_init(&info, "Bluetooth debug info:",
+                         BT_INFO_FIXED_ITEMS + BT_INFO_STATS_ITEMS, NULL);
     info.scroll_all = false;
     info.action_callback = bt_heap_info_action_callback;
     info.get_name = bt_heap_info_getname;
@@ -433,9 +510,36 @@ static esp_a2d_audio_state_t bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
 uint32_t bt_codec_stack[DEFAULT_STACK_SIZE / sizeof(uint32_t)];
 
 
+/* Media tick stats: how late each tick ran and how long its work took.
+ * The gap is invalid until the first tick after the stream starts. */
+static bt_stats_time_t tick_last;
+static bool tick_valid;
+
+static void bt_codec_tick(void)
+{
+    bt_stats_time_t t = bt_stats_now();
+
+    bt_stats.a2d_ticks++;
+    if (tick_valid) {
+        uint32_t gap = BT_STATS_US(t - tick_last);
+        bt_stats_max(&bt_stats.a2d_tick_gap_us_max, gap);
+        if (gap > current_codec->get_period() * 1500) {
+            bt_stats.a2d_tick_late++;
+        }
+    }
+    tick_last = t;
+    tick_valid = true;
+
+    current_codec->tick();
+
+    bt_stats_max(&bt_stats.a2d_work_us_max, BT_STATS_US(bt_stats_now() - t));
+    bt_stats_max(&bt_stats.a2d_q_max, esp_a2d_source_audio_queue_len());
+}
+
 static void bt_codec_task(void)
 {
     int64_t next_ms = (((int64_t)current_tick) * 1000) / HZ;
+    tick_valid = false;
     while (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED && bt_current_state == ESP_A2D_AUDIO_STATE_STARTED) {
         uint64_t ticked = 0;
         do {
@@ -447,7 +551,7 @@ static void bt_codec_task(void)
                 thread_exit();
                 return;
             }
-            current_codec->tick();
+            bt_codec_tick();
             next_ms += current_codec->get_period();
             ticked += current_codec->get_period();
         } while ((next_ms * HZ) / 1000 <= current_tick);
@@ -507,6 +611,8 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
         case ESP_A2D_CONNECTION_STATE_EVT:
             logf("a2d %d %d", event, param->conn_stat.state);
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
+                memcpy(a2d_peer, param->conn_stat.remote_bda, ESP_BD_ADDR_LEN);
+                a2d_peer_valid = true;
                 semaphore_init(&sink_control_sem, 1, 0);
                 queue_init(&sink_control_queue, false);
                 sink_suspended = 1;
@@ -514,6 +620,7 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                 esp_bt_gap_read_remote_name(param->conn_stat.remote_bda);
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
+                a2d_peer_valid = false;
                 if (current_codec != NULL) {
                     bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                     current_codec->deinit();
@@ -760,6 +867,7 @@ size_t bt_read_pcm(uint8_t *buf, size_t len) {
     }
     size_t written = 0;
     if (pcm_data_start != NULL && audio_locked == 0) {
+        int32_t wanted = len;
         while (len > 0 && (pcm_data_size > 0 || get_new_buf_maybe())) {
             size_t sent = MIN(pcm_data_size, len);
             bt_sw_volume_copy_buffer(buf, pcm_data_start, sent);
@@ -769,8 +877,12 @@ size_t bt_read_pcm(uint8_t *buf, size_t len) {
             len -= sent;
             written += sent;
         }
+        if ((int32_t)written < wanted) {
+            bt_stats.pcm_short++;
+        }
     } else {
         // Transmit digital silence
+        bt_stats.pcm_silence++;
         written = len;
         memset(buf, 0, len);
     }

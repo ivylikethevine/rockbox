@@ -24,6 +24,7 @@
 #include "devicedata.h"
 #include "esp_bluedroid_hci.h"
 #include "esp_bt_main.h"
+#include "osi/bt_stats.h"
 #include "fcntl.h"
 #include "file.h"
 #include "gpio-ingenic.h"
@@ -184,6 +185,7 @@ void bluetooth_hci_task(void)
             thread_exit();
             return;
         }
+        bt_stats.drv_rx_errors = uart_rx_errors[PORT_UART0];
         hci_callbacks->notify_host_recv(buf, recvd);
     }
 }

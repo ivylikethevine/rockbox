@@ -26,6 +26,7 @@
 #include "stack/avdt_api.h"
 
 #include "sbc_encoder.h"
+#include "osi/bt_stats.h"
 
 #include <limits.h>
 #include <string.h>
@@ -307,6 +308,9 @@ static void a2dp_sbc_encoder_update(int16_t freq, esp_a2d_mcc_t *pref_mcc, bool*
   /* Reset the SBC encoder */
   SBC_Encoder_Init(&a2dp_sbc_encoder_cb.sbc_encoder_params);
   a2dp_sbc_encoder_cb.tx_sbc_frames = calculate_max_frames_per_packet();
+
+  bt_stats.a2d_bitrate = p_encoder_params->u16BitRate;
+  bt_stats.a2d_mtu = a2dp_sbc_encoder_cb.TxAaMtuSize;
 }
 
 void a2dp_sbc_encoder_cleanup(void) {
@@ -482,6 +486,7 @@ static void a2dp_sbc_encode_frames(uint8_t nb_frame) {
                 2 *
                 16 / 8;
         /* no more pcm to read */
+        bt_stats.a2d_underflow++;
         nb_frame = 0;
       }
     } while (((p_buf->data_len + last_frame_len) < a2dp_sbc_encoder_cb.TxAaMtuSize) &&
@@ -504,6 +509,7 @@ static void a2dp_sbc_encode_frames(uint8_t nb_frame) {
       uint8_t done_nb_frame = remain_nb_frame - nb_frame;
       remain_nb_frame = nb_frame;
       if (esp_a2d_source_audio_data_send(a2dp_sbc_encoder_cb.peer, p_buf) != ESP_OK) {
+        bt_stats.a2d_q_drops++;
         esp_a2d_audio_buff_free(p_buf);
         return;
       }

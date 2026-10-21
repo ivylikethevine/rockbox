@@ -10,6 +10,7 @@
 #include "common/bt_target.h"
 #include "bt_common.h"
 #include "hci/hci_trans_int.h"
+#include "osi/bt_stats.h"
 #if (BT_CONTROLLER_INCLUDED == TRUE)
 #include "esp_bt.h"
 #endif
@@ -89,7 +90,9 @@ void hci_host_send_packet(uint8_t *data, uint16_t len)
     esp_vhci_host_send_packet(data, len);
 #else /* BT_CONTROLLER_INCLUDED == TRUE */
     if (s_hci_driver_ops.send) {
+        bt_stats_time_t t = bt_stats_now();
         s_hci_driver_ops.send(data, len);
+        bt_stats_hci_tx(data, len, bt_stats_now() - t);
     } else {
         ESP_LOGE(LOG_TAG, "%s send function is not registered", __func__);
     }

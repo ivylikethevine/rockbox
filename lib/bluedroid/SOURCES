@@ -1,6 +1,7 @@
 #ifdef HAVE_BLUETOOTH
 osi/alarm.c
 osi/allocator.c
+osi/bt_stats.c
 osi/buffer.c
 osi/config.c
 osi/fixed_queue.c

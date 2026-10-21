@@ -24,6 +24,7 @@
  *
  ******************************************************************************/
 
+#include "osi/bt_stats.h"
 #include "common/bt_target.h"
 #if defined(BTA_AV_INCLUDED) && (BTA_AV_INCLUDED == TRUE)
 
@@ -2296,6 +2297,7 @@ void bta_av_data_path (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
                 /* just got this buffer from co_data,
                  * put it in queue */
                 list_append(p_scb->a2d_list, p_buf);
+                bt_stats_max(&bt_stats.a2d_av_list_max, list_length(p_scb->a2d_list));
             } else {
                 /* just dequeue it from the a2d_list */
                 if (list_length(p_scb->a2d_list) < 3) {

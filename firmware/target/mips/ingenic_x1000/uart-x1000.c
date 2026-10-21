@@ -40,6 +40,17 @@ static size_t rx_available;
 
 static struct semaphore rx_done_sem;
 
+uint32_t uart_rx_errors[PORT_MAX];
+
+/* Reading ULSR clears its error bits, so every read goes through here */
+static uint32_t read_ulsr(uart_port_t port)
+{
+    uint32_t ulsr = jz_read(UART_ULSR(port));
+    if (ulsr & (BM_UART_ULSR_OVER | BM_UART_ULSR_FMER |
+                BM_UART_ULSR_PARER | BM_UART_ULSR_BI))
+        uart_rx_errors[port]++;
+    return ulsr;
+}
 
 static void uart_tx_dma_cb(int evt)
 {
@@ -223,7 +234,7 @@ bool uart_tx_timeout(uart_port_t port, const uint8_t *buf, size_t len,
         jz_writef(UART_UFCR(port), TFRT(1));
         return false;
     }
-    while (jz_readf(UART_ULSR(port), TEMP) == 0) {
+    while (jz_vreadf(read_ulsr(port), UART_ULSR, TEMP) == 0) {
         if (timeout != TIMEOUT_BLOCK && TIME_AFTER(current_tick, deadline)) {
             jz_writef(UART_UFCR(port), TFRT(1));
             return false;
@@ -264,7 +275,7 @@ void uart_irq(uart_port_t port) {
         return;
     }
 
-    uint32_t ulsr = jz_read(UART_ULSR(port));
+    uint32_t ulsr = read_ulsr(port);
 
     if (jz_vreadf(ulsr, UART_ULSR, DRY) != 0) {
         bool was_avail = rx_available > 0;

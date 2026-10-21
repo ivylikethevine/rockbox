@@ -24,6 +24,7 @@
  ******************************************************************************/
 #include "common/bt_trace.h"
 #include "stack/a2d_codecs.h"
+#include "osi/bt_stats.h"
 #include "string.h"
 #include "common/bt_target.h"
 #include "stack/a2d_api.h"
@@ -1183,6 +1184,7 @@ void bta_av_co_audio_drop(tBTA_AV_HNDL hndl)
 {
     FUNC_TRACE();
 
+    bt_stats.a2d_av_drops++;
     APPL_TRACE_ERROR("bta_av_co_audio_drop dropped: x%x", hndl);
 }
 

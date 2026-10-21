@@ -55,4 +55,7 @@ extern void uart_set_parity(uart_port_t port, uart_parity_t parity);
 extern void uart_set_flow_control(uart_port_t port, bool enable);
 extern void uart_deinit(uart_port_t port);
 
+/* RX overrun, framing, parity and break errors seen on each port */
+extern uint32_t uart_rx_errors[PORT_MAX];
+
 #endif /* __UART_X1000_H__ */
