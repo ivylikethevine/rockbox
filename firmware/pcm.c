@@ -366,6 +366,11 @@ bool pcm_switch_sink(enum pcm_sink_ids sink)
 
     /* save current sink before switching */
     struct pcm_sink* old_sink = sinks[cur_sink];
+    struct pcm_sink* new_sink = sinks[sink];
+
+    /* wake the new sink before it gets set up */
+    if(new_sink->ops.standby)
+        new_sink->ops.standby(false);
 
     /* update sink index */
     cur_sink = sink;
@@ -385,6 +390,10 @@ bool pcm_switch_sink(enum pcm_sink_ids sink)
             pcm_play_stop_int();
         }
     }
+
+    /* the old sink is idle now */
+    if(old_sink->ops.standby)
+        old_sink->ops.standby(true);
 
     return true;
 }

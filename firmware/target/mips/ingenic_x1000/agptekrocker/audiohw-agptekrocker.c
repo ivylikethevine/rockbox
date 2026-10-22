@@ -39,6 +39,7 @@
 
 static int cur_fsel = HW_FREQ_48;
 static int cur_vol_l = 0, cur_vol_r = 0;
+static bool standby = false;
 
 static void codec_power(bool on)
 {
@@ -89,15 +90,57 @@ void audiohw_postinit(void)
 
 void audiohw_close(void)
 {
+    if(standby)
+        return;
+
     gpio_set_level(GPIO_HP_MUTE, 1);
     gpio_set_level(GPIO_LINE_MUTE, 1);
     cs42l51_close();
     codec_power(false);
 }
 
+void audiohw_standby(bool on)
+{
+    if(on == standby)
+        return;
+
+    if(on) {
+        /* Outputs muted first, then as audiohw_close() but with LDO2 left
+         * on: it also pulls up the headphone detect line (PC20), which
+         * floats without it and reads as plugging and unplugging. The
+         * codec is held in reset instead. */
+        gpio_set_level(GPIO_HP_MUTE, 1);
+        gpio_set_level(GPIO_LINE_MUTE, 1);
+        cs42l51_close();
+        gpio_set_level(GPIO_CS42L51_RESET, 0);
+        gpio_set_level(GPIO_AMP_PWR, 0);
+        aic_enable_i2s_bit_clock(false);
+        aic_enable_i2s_master_clock(false);
+        standby = true;
+    } else {
+        standby = false;
+        aic_set_i2s_clock(X1000_CLK_SCLK_A, hw_freq_sampr[cur_fsel], 256);
+        aic_enable_i2s_master_clock(true);
+        aic_enable_i2s_bit_clock(true);
+
+        codec_power(true);
+        if(cs42l51_open())
+            logf("audiohw: codec not found");
+        cs42l51_set_frequency(hw_freq_sampr[cur_fsel]);
+        cs42l51_set_volume(cur_vol_l, cur_vol_r);
+        audiohw_postinit();
+    }
+}
+
 void audiohw_set_frequency(int fsel)
 {
     int sampr = hw_freq_sampr[fsel];
+
+    /* applied when the codec comes back */
+    if(standby) {
+        cur_fsel = fsel;
+        return;
+    }
 
     /* MCLK = 256 fs */
     aic_enable_i2s_bit_clock(false);
@@ -112,5 +155,6 @@ void audiohw_set_volume(int vol_l, int vol_r)
 {
     cur_vol_l = vol_l;
     cur_vol_r = vol_r;
-    cs42l51_set_volume(vol_l, vol_r);
+    if(!standby)
+        cs42l51_set_volume(vol_l, vol_r);
 }

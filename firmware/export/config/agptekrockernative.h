@@ -62,6 +62,8 @@
 /* Codec / audio hardware defines */
 #define HW_SAMPR_CAPS SAMPR_CAP_ALL_96
 #define HAVE_CS42L51
+/* codec off while Bluetooth plays */
+#define HAVE_AUDIOHW_STANDBY
 #define HAVE_SW_TONE_CONTROLS
 
 /* Button defines */

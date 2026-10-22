@@ -451,6 +451,14 @@ void audiohw_postinit(void);
  */
 void audiohw_close(void);
 
+#ifdef HAVE_AUDIOHW_STANDBY
+/**
+ * Power the codec down while another PCM sink plays, and back up.
+ * Settings made meanwhile are applied on the way back up.
+ */
+void audiohw_standby(bool standby);
+#endif
+
 #ifdef AUDIOHW_HAVE_MONO_VOLUME
   /**
  * Set new volume value

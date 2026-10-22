@@ -223,6 +223,9 @@ struct pcm_sink builtin_pcm_sink = {
         .unlock   = sink_unlock,
         .play     = sink_dma_start,
         .stop     = sink_dma_stop,
+#ifdef HAVE_AUDIOHW_STANDBY
+        .standby  = audiohw_standby,
+#endif
     },
 #ifdef WANT_SINK_VOLUME_OVERRIDE
     .volume = NULL,

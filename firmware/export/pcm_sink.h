@@ -58,6 +58,8 @@ struct pcm_sink_ops {
     void (*unlock)(void);
     void (*play)(const void* addr, size_t size);
     void (*stop)(void);
+    /* optional: power the output down while another sink is in use */
+    void (*standby)(bool standby);
 };
 
 struct pcm_sink {
