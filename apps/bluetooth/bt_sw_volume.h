@@ -21,6 +21,9 @@
 #define BT_SW_VOLUME_H
 #include <stddef.h>
 
+/* Levels in centibels, -730 and below mutes. Set ramps to them, jump
+ * goes there at once, for when nothing has played at the old ones. */
 void bt_sw_volume_set_volume(int vol_l, int vol_r);
+void bt_sw_volume_jump_volume(int vol_l, int vol_r);
 void bt_sw_volume_copy_buffer(void *dst, const void *src, size_t size);
 #endif /* BT_SW_VOLUME_H */
