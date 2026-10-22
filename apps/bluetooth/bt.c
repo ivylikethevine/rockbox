@@ -364,8 +364,9 @@ static void pref_reset(void) {
 }
 
 /* The stream config as last reported. A sink that sets up the stream
- * itself (it connected to us) picks the bitpool range; ask once per
- * connection for ours instead. */
+ * itself (it connected to us) picks the bitpool range, above or below
+ * what the codec option asks for; ask once per connection for ours
+ * instead. */
 static esp_a2d_cie_sbc_t stream_cfg;
 static bool stream_cfg_valid;
 static bool bitpool_checked;
@@ -379,14 +380,12 @@ static void check_stream_bitpool(void) {
         return;
     bitpool_checked = true;
 
-    if (stream_cfg.max_bitpool >= bt_core_max_bitpool())
-        return;
-
     esp_a2d_mcc_t mcc;
-    if (!make_pref_mcc(&mcc, stream_cfg.samp_freq))
+    if (!make_pref_mcc(&mcc, stream_cfg.samp_freq) ||
+        stream_cfg.max_bitpool == mcc.cie.sbc_info.max_bitpool)
         return;
 
-    logf("bitpool capped at %d by the sink, reconfiguring", stream_cfg.max_bitpool);
+    logf("bitpool ceiling %d set by the sink, reconfiguring", stream_cfg.max_bitpool);
     pref_request(&mcc, true);
 }
 
