@@ -37,6 +37,10 @@ bool bt_a2d_register_endpoint(void);
  * nothing plays */
 size_t bt_read_pcm(uint8_t *buf, size_t len);
 
+/* bt.c: the A2DP sink is gone or going, pause and use the built-in
+ * output again */
+void bt_sink_lost(void);
+
 /* bt_core.c, A2DP connection changes passed on by bt_a2d_cb() */
 void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr);

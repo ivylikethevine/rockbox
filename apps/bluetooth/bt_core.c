@@ -38,8 +38,6 @@
 #include "esp_gap_bt_api.h"
 #include "logf.h"
 #include "misc.h"
-#include "pcm.h"
-#include "pcm_sink.h"
 #include "rbpaths.h"
 #include "string-extra.h"
 #include "file.h"
@@ -567,11 +565,10 @@ void bt_disable(void)
     bt_discovery_stop();
     pending_valid = false;
     autoconnect_next = -1;
-    stack_down();
 
-    /* No disconnect event comes after the stack is gone */
-    if (peer_state != BT_CONN_DISCONNECTED)
-        pcm_switch_sink(PCM_SINK_BUILTIN);
+    /* No disconnect event comes once the stack is gone */
+    bt_sink_lost();
+    stack_down();
     peer_state = BT_CONN_DISCONNECTED;
     if (pair_state == BT_PAIR_BUSY)
         pair_state = BT_PAIR_FAILED;

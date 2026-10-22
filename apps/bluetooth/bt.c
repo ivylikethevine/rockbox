@@ -4,6 +4,7 @@
 #define LOGF_ENABLE
 #include "action.h"
 #include "asm/thread.h"
+#include "audio.h"
 #include "bluetooth/codecs.h"
 #include "bt_hci.h"
 #include "btc_av.h"
@@ -389,6 +390,26 @@ static void check_stream_bitpool(void) {
     pref_request(&mcc, true);
 }
 
+/* Whether audio goes to the A2DP sink */
+static bool sink_active;
+
+/* The Bluetooth output went away. Rather than carry on through the
+ * player's own output, pause, as a phone does when its headset goes;
+ * the pause is done before audio moves back to the built-in output. */
+void bt_sink_lost(void) {
+    if (!sink_active)
+        return;
+    sink_active = false;
+
+    int status = audio_status();
+    if ((status & AUDIO_STATUS_PLAY) && !(status & AUDIO_STATUS_PAUSE)) {
+        logf("bluetooth sink lost, pausing");
+        audio_pause();
+    }
+    pcm_switch_sink(PCM_SINK_BUILTIN);
+    sound_set_balance(global_settings.balance);
+}
+
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     switch (event) {
         case ESP_A2D_CONNECTION_STATE_EVT:
@@ -407,12 +428,11 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
                 stream_cfg_valid = false;
                 pref_reset();
+                bt_sink_lost();
                 if (current_codec != NULL) {
                     bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                     current_codec->deinit();
                     current_codec = NULL;
-                    pcm_switch_sink(PCM_SINK_BUILTIN);
-                    sound_set_balance(global_settings.balance);
                     bt_has_avrcp_abs_vol = false;
                     bt_volume = 127;
                 }
@@ -421,6 +441,7 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
         case ESP_A2D_MEDIA_CTRL_ACK_EVT:
             logf("a2d %d %d %d", event, param->media_ctrl_stat.cmd, param->media_ctrl_stat.status);
             if (param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY) {
+                sink_active = true;
                 pcm_switch_sink(PCM_SINK_BLUETOOTH);
                 sound_set_balance(global_settings.balance);
             } else if (pref_wait_suspend && param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_SUSPEND) {
