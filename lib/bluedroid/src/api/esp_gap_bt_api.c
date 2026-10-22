@@ -380,7 +380,7 @@ esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *dev_list)
     return (ret == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }
 
-esp_err_t esp_bt_gap_get_bond_device_property(esp_bd_addr_t bd_addr, const char *key, char *value, size_t *len)
+esp_err_t esp_bt_gap_get_bond_device_property(esp_bd_addr_t bd_addr, const char *key, char *value, size_t len)
 {
     int ret;
 
@@ -396,7 +396,7 @@ esp_err_t esp_bt_gap_get_bond_device_property(esp_bd_addr_t bd_addr, const char 
     return (ret == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }
 
-esp_err_t esp_bt_gap_set_bond_device_property(esp_bd_addr_t bd_addr, const char *key, const char *value, size_t len)
+esp_err_t esp_bt_gap_set_bond_device_property(esp_bd_addr_t bd_addr, const char *key, const char *value)
 {
     int ret;
 
@@ -407,7 +407,23 @@ esp_err_t esp_bt_gap_set_bond_device_property(esp_bd_addr_t bd_addr, const char 
     bt_bdaddr_t addr;
     memcpy(&addr, bd_addr, sizeof(esp_bd_addr_t));
 
-    ret = btc_storage_set_bonded_bt_device_property(addr, key, value, len);
+    ret = btc_storage_set_bonded_bt_device_property(addr, key, value);
+
+    return (ret == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
+}
+
+esp_err_t esp_bt_gap_remove_bond_device_properties(esp_bd_addr_t bd_addr)
+{
+    int ret;
+
+    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    bt_bdaddr_t addr;
+    memcpy(&addr, bd_addr, sizeof(esp_bd_addr_t));
+
+    ret = btc_storage_remove_bonded_bt_device_properties(addr);
 
     return (ret == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }

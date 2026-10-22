@@ -20,7 +20,7 @@
 #include "osi/allocator.h"
 #include "tick.h"
 #include "bluetooth/codecs.h"
-#include "bluetooth/bt.h"
+#include "bluetooth/bt-internal.h"
 #include "a2dp_vendor_aptx_constants.h"
 #include "stack/avdt_api.h"
 

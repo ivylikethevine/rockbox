@@ -21,7 +21,7 @@
 #include "esp_a2dp_api.h"
 #include "tick.h"
 #include "bluetooth/codecs.h"
-#include "bluetooth/bt.h"
+#include "bluetooth/bt-internal.h"
 #include "stack/a2d_sbc.h"
 #include "stack/avdt_api.h"
 

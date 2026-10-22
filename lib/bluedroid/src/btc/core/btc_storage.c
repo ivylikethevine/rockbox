@@ -348,26 +348,46 @@ bt_status_t btc_storage_get_bonded_bt_devices_list(bt_bdaddr_t *bond_dev, int *d
     return BT_STATUS_SUCCESS;
 }
 
-bt_status_t btc_storage_get_bonded_bt_device_property(bt_bdaddr_t bd_addr, const char *key, char *value, size_t *len)
+bt_status_t btc_storage_get_bonded_bt_device_property(bt_bdaddr_t bd_addr, const char *key, char *value, size_t len)
 {
     bdstr_t bdstr;
+    int size = len;
     bdaddr_to_string(&bd_addr, bdstr, sizeof(bdstr));
 
     btc_config_lock();
-    bool ret = btc_config_get_bin(bdstr, key, value, len);
+    bool ret = btc_config_get_str(bdstr, key, value, &size);
     btc_config_unlock();
 
     return ret ? BT_STATUS_SUCCESS : BT_STATUS_FAIL;
 }
 
-bt_status_t btc_storage_set_bonded_bt_device_property(bt_bdaddr_t bd_addr, const char *key, const char *value, size_t len)
+bt_status_t btc_storage_set_bonded_bt_device_property(bt_bdaddr_t bd_addr, const char *key, const char *value)
 {
     bdstr_t bdstr;
     bdaddr_to_string(&bd_addr, bdstr, sizeof(bdstr));
 
     btc_config_lock();
-    btc_config_set_bin(bdstr, key, value, len);
+    if (value) {
+        btc_config_set_str(bdstr, key, value);
+    } else if (btc_config_exist(bdstr, key)) {
+        btc_config_remove(bdstr, key);
+    }
     btc_config_flush();
+    btc_config_unlock();
+
+    return BT_STATUS_SUCCESS;
+}
+
+bt_status_t btc_storage_remove_bonded_bt_device_properties(bt_bdaddr_t bd_addr)
+{
+    bdstr_t bdstr;
+    bdaddr_to_string(&bd_addr, bdstr, sizeof(bdstr));
+
+    btc_config_lock();
+    if (btc_config_has_section(bdstr)) {
+        btc_config_remove_section(bdstr);
+        btc_config_flush();
+    }
     btc_config_unlock();
 
     return BT_STATUS_SUCCESS;

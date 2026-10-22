@@ -31,23 +31,13 @@
 #include "tlsf.h"
 #include "misc.h"
 #include "osi/bt_stats.h"
+#include "bt.h"
+#include "bt-internal.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define BT_MAX_NAME_LEN 64
-#define BT_MAX_ENTRIES 64
-
-typedef struct {
-    bool valid;
-    esp_bd_addr_t addr;
-    int8_t rssi;
-    char name[BT_MAX_NAME_LEN];
-} bt_list_entry_t;
-
-static bt_list_entry_t bt_entries[BT_MAX_ENTRIES + 1];
 
 static struct a2dp_codec *current_codec = NULL;
 
@@ -60,310 +50,7 @@ static struct a2dp_codec *codec_list[NUM_CODECS] = {
     &a2dp_codec_sbc,
 };
 
-static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
-static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
-static void bt_app_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param);
-static void bt_app_avrc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param);
-
-void bluetooth_enable_discover(void)
-{
-    esp_err_t ret;
-    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
-        splashf(0, "Enabling bluetooth...");
-        bt_hci_enable();
-        esp_bluedroid_config_t cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-        cfg.sc_en = true;
-        if ((ret = esp_bluedroid_init_with_cfg(&cfg)) != ESP_OK) {
-            panicf("%s initialize bluedroid failed: %d", __func__, ret);
-        }
-        if ((ret = esp_bluedroid_enable()) != ESP_OK) {
-            panicf("%s enable bluedroid failed: %d", __func__, ret);
-        }
-        esp_bt_sp_param_t param_type = ESP_BT_SP_IOCAP_MODE;
-        esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_IO;
-        if ((ret = esp_bt_gap_set_security_param(param_type, &iocap, sizeof(uint8_t))) != ESP_OK) {
-            panicf("%s set security param failed: %d", __func__, ret);
-        }
-        esp_bt_pin_type_t pin_type = ESP_BT_PIN_TYPE_VARIABLE;
-        esp_bt_pin_code_t pin_code;
-        esp_bt_gap_set_pin(pin_type, 0, pin_code);
-        if ((ret = esp_bt_gap_register_callback(bt_app_gap_cb)) != ESP_OK) {
-            panicf("%s set gap cb failed: %d", __func__, ret);
-        }
-        char device_name[32] = "Rockbox";
-        int fd = open_utf8(ROCKBOX_DIR "/playername.txt", O_RDONLY);
-        if (fd >= 0) {
-            read_line(fd, device_name, sizeof(device_name));
-            close(fd);
-            device_name[sizeof(device_name)-1] = 0;
-        }
-        if ((ret = esp_bt_gap_set_device_name(device_name)) != ESP_OK) {
-            panicf("%s set device name failed: %d", __func__, ret);
-        }
-        if ((ret = esp_avrc_ct_init()) != ESP_OK) {
-            panicf("%s avrcp ct init failed: %d", __func__, ret);
-        }
-        if ((ret = esp_avrc_ct_register_callback(bt_app_avrc_ct_cb)) != ESP_OK) {
-            panicf("%s avrcp ct init failed: %d", __func__, ret);
-        }
-        if ((ret = esp_avrc_tg_init()) != ESP_OK) {
-            panicf("%s avrcp tg init failed: %d", __func__, ret);
-        }
-        if ((ret = esp_avrc_tg_register_callback(bt_app_avrc_tg_cb)) != ESP_OK) {
-            panicf("%s avrcp tg init failed: %d", __func__, ret);
-        }
-
-        esp_avrc_psth_bit_mask_t psth = {0};
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_PLAY);
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_PAUSE);
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_STOP);
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_FORWARD);
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_BACKWARD);
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_FAST_FORWARD);
-        esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &psth, ESP_AVRC_PT_CMD_REWIND);
-        ret = esp_avrc_tg_set_psth_cmd_filter(ESP_AVRC_PSTH_FILTER_SUPPORTED_CMD,
-                                                &psth);
-        if (ret != ESP_OK) {
-            panicf("%s avrcp tg init failed: %d", __func__, ret);
-        }
-
-        // esp_avrc_rn_evt_cap_mask_t evt_set = {0};
-        // esp_avrc_rn_evt_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET, &evt_set,
-        //                                     ESP_AVRC_RN_PLAY_STATUS_CHANGE);
-        // ret = esp_avrc_tg_set_rn_evt_cap(&evt_set);
-        // if (ret != ESP_OK) {
-        //     panicf("%s avrcp tg init failed: %d", __func__, ret);
-        // }
-
-        if ((ret = esp_a2d_source_init()) != ESP_OK) {
-            panicf("%s a2dp source init failed: %d", __func__, ret);
-        }
-        if ((ret = esp_a2d_register_callback(bt_app_a2d_cb)) != ESP_OK) {
-            panicf("%s a2dp register callback failed: %d", __func__, ret);
-        }
-        esp_a2d_mcc_t mcc;
-        mcc.losc = A2D_SBC_INFO_LEN;
-        mcc.media_type = A2D_MEDIA_TYPE_AUDIO;
-        mcc.codec_type = ESP_A2D_MCT_SBC;
-        mcc.cie.sbc_info.samp_freq    = ESP_A2D_SBC_CIE_SF_44K | ESP_A2D_SBC_CIE_SF_48K;
-        mcc.cie.sbc_info.ch_mode      = ESP_A2D_SBC_CIE_CH_MODE_JOINT_STEREO;
-        mcc.cie.sbc_info.block_len    = ESP_A2D_SBC_CIE_BLOCK_LEN_16;
-        mcc.cie.sbc_info.num_subbands = ESP_A2D_SBC_CIE_NUM_SUBBANDS_8;
-        mcc.cie.sbc_info.alloc_mthd   = ESP_A2D_SBC_CIE_ALLOC_MTHD_LOUDNESS;
-        mcc.cie.sbc_info.min_bitpool  = 3;
-        mcc.cie.sbc_info.max_bitpool  = 53;
-        if ((ret = esp_a2d_source_register_stream_endpoint(0, &mcc)) != ESP_OK) {
-            panicf("%s a2dp register stream endpoint failed: %d", __func__, ret);
-        }
-        if ((ret = esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE)) != ESP_OK) {
-            panicf("%s set scan mode failed: %d", __func__, ret);
-        }
-        esp_bd_addr_t bonded_addrs[BT_MAX_ENTRIES];
-        int num_bonded_addrs = BT_MAX_ENTRIES;
-        esp_bt_gap_get_bond_device_list(&num_bonded_addrs, bonded_addrs);
-        for (int i = 0; i < num_bonded_addrs; i++) {
-            memcpy(bt_entries[i].addr, (bonded_addrs + i), ESP_BD_ADDR_LEN);
-            size_t len = BT_MAX_NAME_LEN - 1;
-            if (esp_bt_gap_get_bond_device_property(bt_entries[i].addr, "RbDeviceName", bt_entries[i].name, &len) == ESP_OK) {
-                bt_entries[i].name[len] = 0;
-            } else {
-                strncpy(bt_entries[i].name, "Unknown Paired Device", BT_MAX_NAME_LEN);
-            }
-            bt_entries[i].rssi = -128;
-            bt_entries[i].valid = true;
-        }
-        bt_entries[num_bonded_addrs].valid = false;
-    }
-    if ((ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 5, 0)) != ESP_OK) {
-        panicf("%s start discovery failed: %d", __func__, ret);
-    }
-}
-
-int bt_action_callback(int action, struct gui_synclist *lists)
-{
-    switch (action) {
-        case ACTION_REDRAW: {
-            int size = 0;
-            while (bt_entries[size].valid && size < BT_MAX_ENTRIES) {
-                size++;
-            }
-            gui_synclist_set_nb_items(lists, size * 2);
-            return ACTION_REDRAW;
-        }
-        case ACTION_STD_OK: {
-            bt_list_entry_t *entry = (bt_entries + (lists->selected_item / 2));
-            esp_err_t ret;
-            if ((ret = esp_a2d_source_connect(entry->addr)) != ESP_OK) {
-                panicf("%s a2dp connect failed: %d", __func__, ret);
-            }
-            return ACTION_NONE;
-        }
-        case ACTION_STD_CONTEXT: {
-            bt_list_entry_t *entry = (bt_entries + (lists->selected_item / 2));
-            esp_err_t ret;
-            if ((ret = esp_a2d_source_disconnect(entry->addr)) != ESP_OK) {
-                panicf("%s a2dp disconnect failed: %d", __func__, ret);
-            }
-            return ACTION_NONE;
-        }
-        case ACTION_STD_MENU: {
-            esp_bt_gap_cancel_discovery();
-            esp_a2d_source_deinit();
-            esp_avrc_tg_deinit();
-            esp_bluedroid_disable();
-            esp_bluedroid_deinit();
-            bt_hci_disable();
-            return ACTION_STD_CANCEL;
-        }
-        default:
-            return action;
-    }
-}
-
-const char * bt_getname(int selected_item, void * data, char * buffer, size_t buffer_len)
-{
-    bt_list_entry_t *entry = (bt_entries + (selected_item / 2));
-    if (selected_item % 2 == 0) {
-        return entry->name;
-    } else {
-        if (entry->rssi == -128) {
-            snprintf(buffer, buffer_len, ESP_BD_ADDR_STR " (Saved)", ESP_BD_ADDR_HEX(entry->addr));
-        } else {
-            snprintf(buffer, buffer_len, "%d dBm " ESP_BD_ADDR_STR, entry->rssi, ESP_BD_ADDR_HEX(entry->addr));
-        }
-        return buffer;
-    }
-}
-
-bool bt_scan(void)
-{
-    struct simplelist_info info;
-
-
-    bluetooth_enable_discover();
-    int size = 0;
-    while (bt_entries[size].valid && size < BT_MAX_ENTRIES) {
-        size++;
-    }
-
-    simplelist_info_init(&info, "Bluetooth devices:", size, NULL);
-    info.scroll_all = false;
-    info.selection_size = 2;
-    info.action_callback = bt_action_callback;
-    info.get_name = bt_getname;
-    return simplelist_show_list(&info);
-}
-
-static void process_inquiry_scan_result(esp_bt_gap_cb_param_t *param)
-{
-    uint32_t cod = 0;     /* class of device */
-    uint8_t *eir = NULL;
-    esp_bt_gap_dev_prop_t *p;
-    int8_t rssi;
-
-    for (int i = 0; i < param->disc_res.num_prop; i++) {
-        p = param->disc_res.prop + i;
-        switch (p->type) {
-        case ESP_BT_GAP_DEV_PROP_COD:
-            cod = *(uint32_t *)(p->val);
-            break;
-        case ESP_BT_GAP_DEV_PROP_EIR:
-            eir = (uint8_t *)(p->val);
-            break;
-        case ESP_BT_GAP_DEV_PROP_RSSI:
-            rssi = *(uint8_t *)(p->val);
-        default:
-            break;
-        }
-    }
-
-    // /* search for device with MAJOR service class as "rendering" and "audio" in COD */
-    // if (!esp_bt_gap_is_valid_cod(cod) ||
-    //         !(esp_bt_gap_get_cod_srvc(cod) & ESP_BT_COD_SRVC_RENDERING) ||
-    //         !(esp_bt_gap_get_cod_srvc(cod) & ESP_BT_COD_SRVC_AUDIO)) {
-    //     return;
-    // }
-
-    if (!esp_bt_gap_is_valid_cod(cod) || eir == NULL) {
-        return;
-    }
-
-    uint8_t *rmt_bdname = NULL;
-    uint8_t rmt_bdname_len = 0;
-
-    /* get complete or short local name from eir data */
-    rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &rmt_bdname_len);
-    if (!rmt_bdname) {
-        rmt_bdname = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rmt_bdname_len);
-    }
-    if (!rmt_bdname) {
-        return; // Don't show nameless devices
-    }
-
-    int bdname_len = MIN(rmt_bdname_len, BT_MAX_NAME_LEN - 1);
-
-    int i = 0;
-    while (i < BT_MAX_ENTRIES && (bt_entries[i].valid && (memcmp(bt_entries[i].addr, param->disc_res.bda, ESP_BD_ADDR_LEN) != 0))) {
-        i++;
-    }
-    if (i < BT_MAX_ENTRIES) {
-        memcpy(bt_entries[i].addr, param->disc_res.bda, ESP_BD_ADDR_LEN);
-        memcpy(bt_entries[i].name, rmt_bdname, bdname_len);
-        bt_entries[i].name[bdname_len] = '\0';
-        bt_entries[i].rssi = rssi;
-        bt_entries[i].valid = true;
-        button_queue_post(BUTTON_REDRAW, 0);
-    }
-}
-
-static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
-{
-    switch (event) {
-        case ESP_BT_GAP_DISC_RES_EVT:
-            logf("gap %d " ESP_BD_ADDR_STR, event, ESP_BD_ADDR_HEX(param->disc_res.bda));
-            process_inquiry_scan_result(param);
-            return;
-        case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
-            logf("gap %d %d", event, param->disc_st_chg.state);
-            return;
-        case ESP_BT_GAP_CFM_REQ_EVT:
-            logf("gap %d %d", event, param->cfm_req.num_val);
-            esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
-            break;
-        case ESP_BT_GAP_PIN_REQ_EVT: {
-            logf("gap %d %d", event, param->pin_req.min_16_digit);
-            if (param->pin_req.min_16_digit) {
-                esp_bt_pin_code_t pin_code = {0};
-                esp_bt_gap_pin_reply(param->pin_req.bda, true, 16, pin_code);
-            } else {
-                esp_bt_pin_code_t pin_code;
-                pin_code[0] = '0';
-                pin_code[1] = '0';
-                pin_code[2] = '0';
-                pin_code[3] = '0';
-                esp_bt_gap_pin_reply(param->pin_req.bda, true, 4, pin_code);
-            }
-            break;
-        }
-        case ESP_BT_GAP_READ_REMOTE_NAME_EVT: {
-            logf("gap %d %d", event, param->read_rmt_name.stat);
-            if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
-                param->read_rmt_name.rmt_name[BT_MAX_NAME_LEN - 1] = 0;
-                esp_bt_gap_set_bond_device_property(param->read_rmt_name.bda, "RbDeviceName", param->read_rmt_name.rmt_name, strlen(param->read_rmt_name.rmt_name));
-            }
-            break;
-        }
-        default:
-            logf("gap %d", event);
-            return;
-    }
-}
-
 extern unsigned char btbuf[];
-
-/* Remote of the A2DP link, for polling its RSSI */
-static esp_bd_addr_t a2d_peer;
-static bool a2d_peer_valid;
 
 int bt_heap_info_action_callback(int action, struct gui_synclist *lists)
 {
@@ -371,9 +58,8 @@ int bt_heap_info_action_callback(int action, struct gui_synclist *lists)
 
     switch (action) {
         case ACTION_NONE:
-            if (a2d_peer_valid && TIME_AFTER(current_tick, next_rssi) &&
-                esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
-                esp_bt_gap_read_rssi_delta(a2d_peer);
+            if (bt_core_peer() && TIME_AFTER(current_tick, next_rssi)) {
+                esp_bt_gap_read_rssi_delta((uint8_t *)bt_core_peer());
                 next_rssi = current_tick + HZ;
             }
             return ACTION_REDRAW;
@@ -606,21 +292,19 @@ bool bt_sink_resume(void) {
     return false;
 }
 
-static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
+void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     switch (event) {
         case ESP_A2D_CONNECTION_STATE_EVT:
             logf("a2d %d %d", event, param->conn_stat.state);
+            bt_core_a2d_conn_state(param->conn_stat.state,
+                                   param->conn_stat.remote_bda);
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
-                memcpy(a2d_peer, param->conn_stat.remote_bda, ESP_BD_ADDR_LEN);
-                a2d_peer_valid = true;
                 semaphore_init(&sink_control_sem, 1, 0);
                 queue_init(&sink_control_queue, false);
                 sink_suspended = 1;
                 sampr_switch_ongoing = false;
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
-                esp_bt_gap_read_remote_name(param->conn_stat.remote_bda);
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
-                a2d_peer_valid = false;
                 if (current_codec != NULL) {
                     bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                     current_codec->deinit();
@@ -713,7 +397,7 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     }
 }
 
-static void bt_app_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param) {
+void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param) {
     switch (event) {
         case ESP_AVRC_CT_CONNECTION_STATE_EVT:
             logf("avrc-ct %d %d\n", event, param->conn_stat.connected);
@@ -763,7 +447,7 @@ static void bt_app_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param
     }
 }
 
-static void bt_app_avrc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param) {
+void bt_avrc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param) {
     switch (event) {
         case ESP_AVRC_TG_CONNECTION_STATE_EVT:
             logf("avrc-tg %d %d", event, param->conn_stat.connected);
@@ -859,6 +543,22 @@ static bool get_new_buf_maybe(void) {
         pcm_play_dma_status_callback(PCM_DMAST_STARTED);
     }
     return ret;
+}
+
+bool bt_a2d_register_endpoint(void)
+{
+    esp_a2d_mcc_t mcc;
+    mcc.losc = A2D_SBC_INFO_LEN;
+    mcc.media_type = A2D_MEDIA_TYPE_AUDIO;
+    mcc.codec_type = ESP_A2D_MCT_SBC;
+    mcc.cie.sbc_info.samp_freq    = ESP_A2D_SBC_CIE_SF_44K | ESP_A2D_SBC_CIE_SF_48K;
+    mcc.cie.sbc_info.ch_mode      = ESP_A2D_SBC_CIE_CH_MODE_JOINT_STEREO;
+    mcc.cie.sbc_info.block_len    = ESP_A2D_SBC_CIE_BLOCK_LEN_16;
+    mcc.cie.sbc_info.num_subbands = ESP_A2D_SBC_CIE_NUM_SUBBANDS_8;
+    mcc.cie.sbc_info.alloc_mthd   = ESP_A2D_SBC_CIE_ALLOC_MTHD_LOUDNESS;
+    mcc.cie.sbc_info.min_bitpool  = 3;
+    mcc.cie.sbc_info.max_bitpool  = 53;
+    return esp_a2d_source_register_stream_endpoint(0, &mcc) == ESP_OK;
 }
 
 size_t bt_read_pcm(uint8_t *buf, size_t len) {

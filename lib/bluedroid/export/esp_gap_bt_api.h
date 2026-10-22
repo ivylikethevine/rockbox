@@ -954,8 +954,12 @@ int esp_bt_gap_get_bond_device_num(void);
 */
 esp_err_t esp_bt_gap_get_bond_device_list(int *dev_num, esp_bd_addr_t *dev_list);
 
-esp_err_t esp_bt_gap_get_bond_device_property(esp_bd_addr_t bd_addr, const char *key, char *value, size_t *len);
-esp_err_t esp_bt_gap_set_bond_device_property(esp_bd_addr_t bd_addr, const char *key, const char *value, size_t len);
+/* Rockbox: free form string properties kept in the device's section of
+ * the bonding config. Setting NULL removes the key. */
+esp_err_t esp_bt_gap_get_bond_device_property(esp_bd_addr_t bd_addr, const char *key, char *value, size_t len);
+esp_err_t esp_bt_gap_set_bond_device_property(esp_bd_addr_t bd_addr, const char *key, const char *value);
+/* Rockbox: drop everything kept for the device, once its bond is removed */
+esp_err_t esp_bt_gap_remove_bond_device_properties(esp_bd_addr_t bd_addr);
 
 /**
 * @brief            Set pin type and default pin code for legacy pairing.
