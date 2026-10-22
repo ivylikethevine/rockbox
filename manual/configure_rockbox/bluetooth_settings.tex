@@ -1,7 +1,12 @@
 The \dap{} can play through Bluetooth headphones and speakers (A2DP),
 which can also control playback with their own buttons (AVRCP). Only one
-of them plays at a time. While one is connected, all sound goes to it;
-when it disconnects, sound goes back to the \dap{} itself.
+of them plays at a time. While one is connected, all sound goes to it.
+When it goes away (it is switched off or out of range, it is disconnected,
+or Bluetooth is turned off) sound goes back to the \dap{} itself:
+\opt{headphone_detection}{if headphones are plugged in, playback carries
+on through them; if not, the \dap{} does what
+\setting{Pause on Headphone Unplug} says, as if they had just been
+unplugged.}
 
 \section{Bluetooth}
 Turns Bluetooth \setting{On} or \setting{Off}. Bluetooth stays on, or off,

@@ -736,6 +736,13 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
         case SYS_PHONE_UNPLUGGED:
             hp_unplug_change(false);
             return SYS_PHONE_UNPLUGGED;
+#ifdef HAVE_BLUETOOTH
+        /* audio came back from Bluetooth with no headphones to play on:
+         * the same as unplugging them */
+        case SYS_BLUETOOTH_SINK_LOST:
+            hp_unplug_change(false);
+            return SYS_BLUETOOTH_SINK_LOST;
+#endif
 #endif
 #ifdef HAVE_LINEOUT_DETECTION
         case SYS_LINEOUT_PLUGGED:

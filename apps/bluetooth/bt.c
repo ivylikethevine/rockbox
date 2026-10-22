@@ -4,7 +4,6 @@
 #define LOGF_ENABLE
 #include "action.h"
 #include "asm/thread.h"
-#include "audio.h"
 #include "bluetooth/codecs.h"
 #include "bt_hci.h"
 #include "btc_av.h"
@@ -393,21 +392,20 @@ static void check_stream_bitpool(void) {
 /* Whether audio goes to the A2DP sink */
 static bool sink_active;
 
-/* The Bluetooth output went away. Rather than carry on through the
- * player's own output, pause, as a phone does when its headset goes;
- * the pause is done before audio moves back to the built-in output. */
+/* The Bluetooth output went away and audio goes back to the jack. With
+ * headphones there playback carries on; without, it goes as if they had
+ * just been unplugged ("Pause on Headphone Unplug"). */
 void bt_sink_lost(void) {
     if (!sink_active)
         return;
     sink_active = false;
 
-    int status = audio_status();
-    if ((status & AUDIO_STATUS_PLAY) && !(status & AUDIO_STATUS_PAUSE)) {
-        logf("bluetooth sink lost, pausing");
-        audio_pause();
-    }
     pcm_switch_sink(PCM_SINK_BUILTIN);
     sound_set_balance(global_settings.balance);
+#ifdef HAVE_HEADPHONE_DETECTION
+    if (!headphones_inserted())
+        queue_broadcast(SYS_BLUETOOTH_SINK_LOST, 0);
+#endif
 }
 
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
