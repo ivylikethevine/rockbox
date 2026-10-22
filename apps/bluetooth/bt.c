@@ -292,6 +292,51 @@ bool bt_sink_resume(void) {
     return false;
 }
 
+/* Our SBC config at the stream's sampling frequency, bitpool capped by
+ * the device's codec option */
+static bool make_pref_mcc(esp_a2d_mcc_t *mcc, uint8_t samp_freq) {
+    unsigned long sampr;
+
+    if (current_codec != &a2dp_codec_sbc)
+        return false;
+
+    switch (samp_freq) {
+        case ESP_A2D_SBC_CIE_SF_48K: sampr = SAMPR_48; break;
+        case ESP_A2D_SBC_CIE_SF_44K: sampr = SAMPR_44; break;
+        case ESP_A2D_SBC_CIE_SF_32K: sampr = SAMPR_32; break;
+        case ESP_A2D_SBC_CIE_SF_16K: sampr = SAMPR_16; break;
+        default: return false;
+    }
+
+    current_codec->set_freq(sampr, mcc);
+    return true;
+}
+
+/* The stream config as last reported. A sink that sets up the stream
+ * itself (it connected to us) picks the bitpool range; ask once per
+ * connection for ours instead. */
+static esp_a2d_cie_sbc_t stream_cfg;
+static bool stream_cfg_valid;
+static bool bitpool_checked;
+
+static void check_stream_bitpool(void) {
+    if (bitpool_checked || !stream_cfg_valid || !bt_core_peer())
+        return;
+    bitpool_checked = true;
+
+    if (sampr_switch_ongoing || stream_cfg.max_bitpool >= bt_core_max_bitpool())
+        return;
+
+    if (!make_pref_mcc(&new_pref_mcc, stream_cfg.samp_freq))
+        return;
+
+    logf("bitpool capped at %d by the sink, reconfiguring", stream_cfg.max_bitpool);
+    sampr_switch_ongoing = true;
+    if (!bt_sink_suspend()) {
+        esp_a2d_source_set_pref_mcc(conn_hdl, &new_pref_mcc);
+    }
+}
+
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     switch (event) {
         case ESP_A2D_CONNECTION_STATE_EVT:
@@ -304,7 +349,10 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 sink_suspended = 1;
                 sampr_switch_ongoing = false;
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
+                bitpool_checked = false;
+                check_stream_bitpool();
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
+                stream_cfg_valid = false;
                 if (current_codec != NULL) {
                     bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                     current_codec->deinit();
@@ -379,6 +427,17 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             }
             break;
         }
+        case ESP_A2D_AUDIO_CFG_EVT:
+            if (param->audio_cfg.mcc.codec_type == ESP_A2D_MCT_SBC) {
+                logf("a2d cfg bitpool %d-%d",
+                     param->audio_cfg.mcc.cie.sbc_info.min_bitpool,
+                     param->audio_cfg.mcc.cie.sbc_info.max_bitpool);
+                conn_hdl = param->audio_cfg.conn_hdl;
+                stream_cfg = param->audio_cfg.mcc.cie.sbc_info;
+                stream_cfg_valid = true;
+                check_stream_bitpool();
+            }
+            return;
         case ESP_A2D_SRC_SET_PREF_MCC_EVT:
             logf("a2d %d %d", event, param->a2d_set_pref_mcc_stat.set_status);
             if (sampr_switch_ongoing) {

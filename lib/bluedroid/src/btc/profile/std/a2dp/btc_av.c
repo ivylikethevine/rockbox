@@ -896,6 +896,9 @@ static BOOLEAN btc_av_state_opened_handler(btc_sm_event_t event, void *p_data)
             bta_av_co_audio_pref_mcc_reconfig_clear(p_av->reconfig.hndl);
 
             if (p_av->reconfig.status == BTA_AV_SUCCESS) {
+                /* Rockbox: the stream now runs our config, the range the
+                 * peer set up the stream with no longer applies */
+                bta_av_co_audio_clear_remote_bitpool_pref();
                 param.a2d_set_pref_mcc_stat.set_status = ESP_BT_STATUS_SUCCESS;
                 BTC_TRACE_DEBUG("pref cfg reconfig ok, h:0x%x", p_av->reconfig.hndl);
             } else {

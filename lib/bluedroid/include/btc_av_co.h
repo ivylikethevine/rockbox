@@ -151,6 +151,10 @@ BOOLEAN bta_av_co_audio_set_pref_mcc(tBTA_AV_HNDL hndl, tBTC_AV_CODEC_INFO *pref
  *******************************************************************************/
 void bta_av_co_audio_clear_pref_mcc(tBTA_AV_HNDL hndl);
 
+/* Rockbox: forget the bitpool range a remote SetConfiguration asked for,
+ * once the stream has been reconfigured to our preferred config */
+void bta_av_co_audio_clear_remote_bitpool_pref(void);
+
 /*******************************************************************************
  **
  ** Function         bta_av_co_audio_pref_mcc_reconfig_initiated

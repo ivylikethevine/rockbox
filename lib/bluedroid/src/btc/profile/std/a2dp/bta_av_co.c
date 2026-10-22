@@ -2345,6 +2345,11 @@ BOOLEAN bta_av_co_peer_cp_supported(tBTA_AV_HNDL hndl)
  **
  *******************************************************************************/
 
+void bta_av_co_audio_clear_remote_bitpool_pref(void)
+{
+    bta_av_co_cb.codec_cfg_setconfig.id = BTC_AV_CODEC_NONE;
+}
+
 BOOLEAN bta_av_co_get_remote_bitpool_pref(UINT8 *min, UINT8 *max)
 {
     /* check if remote peer did a set config */

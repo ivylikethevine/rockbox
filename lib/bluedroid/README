@@ -66,6 +66,8 @@ osi/include/osi/thread.h: removed osi_thread_name
 osi/include/osi/thread.h: removed freertos and esp_task includes
 sbc/encoder/srce/sbc_analysis.c: added scratch space before s32X to work around OOB write reported by ASAN
 src/stack/avdt/avdt_ccb.c: changed UINT32 cast to uintptr_t for 64-bit platforms
+src/btc/profile/std/a2dp/bta_av_co.c: added bta_av_co_audio_clear_remote_bitpool_pref
+src/btc/profile/std/a2dp/btc_av.c: clear the remote bitpool preference after a successful preferred config reconfig
 
 Added files:
 osi/include/sdkconfig.h: handwritten configuration file based on esp-idf/components/bt/host/bluedroid/Kconfig.in
