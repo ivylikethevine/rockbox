@@ -216,16 +216,16 @@ void a2dp_sbc_encoder_init(struct pcm_sink_caps *caps, const struct a2dp_peer_in
   memset(&a2dp_sbc_encoder_cb, 0, sizeof(a2dp_sbc_encoder_cb));
 
   int i = 0;
-  if (peer->peer_caps->cie.sbc_info.samp_freq | ESP_A2D_SBC_CIE_SF_48K) {
+  if (peer->peer_caps->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_48K) {
     bt_sbc_sampr[i++] = SAMPR_48;
   }
-  if (peer->peer_caps->cie.sbc_info.samp_freq | ESP_A2D_SBC_CIE_SF_44K) {
+  if (peer->peer_caps->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_44K) {
     bt_sbc_sampr[i++] = SAMPR_44;
   }
-  if (peer->peer_caps->cie.sbc_info.samp_freq | ESP_A2D_SBC_CIE_SF_32K) {
+  if (peer->peer_caps->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_32K) {
     bt_sbc_sampr[i++] = SAMPR_32;
   }
-  if (peer->peer_caps->cie.sbc_info.samp_freq | ESP_A2D_SBC_CIE_SF_16K) {
+  if (peer->peer_caps->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_16K) {
     bt_sbc_sampr[i++] = SAMPR_16;
   }
   caps->samprs = bt_sbc_sampr;
@@ -773,12 +773,12 @@ static bool sbc_is_acceptable(const esp_a2d_mcc_t *peer_caps)
         || peer_caps->codec_type != ESP_A2D_MCT_SBC) {
         return false;
     }
-    if (peer_caps->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_44K == 0
-        || peer_caps->cie.sbc_info.samp_freq & ESP_A2D_SBC_CIE_SF_48K == 0
-        || peer_caps->cie.sbc_info.ch_mode & ESP_A2D_SBC_CIE_CH_MODE_JOINT_STEREO == 0
-        || peer_caps->cie.sbc_info.block_len & ESP_A2D_SBC_CIE_BLOCK_LEN_16 == 0
-        || peer_caps->cie.sbc_info.num_subbands & ESP_A2D_SBC_CIE_NUM_SUBBANDS_8 == 0
-        || peer_caps->cie.sbc_info.alloc_mthd & ESP_A2D_SBC_CIE_ALLOC_MTHD_LOUDNESS == 0) {
+    /* A rate we run at and the frame layout the encoder is fixed to */
+    if ((peer_caps->cie.sbc_info.samp_freq & (ESP_A2D_SBC_CIE_SF_44K | ESP_A2D_SBC_CIE_SF_48K)) == 0
+        || (peer_caps->cie.sbc_info.ch_mode & ESP_A2D_SBC_CIE_CH_MODE_JOINT_STEREO) == 0
+        || (peer_caps->cie.sbc_info.block_len & ESP_A2D_SBC_CIE_BLOCK_LEN_16) == 0
+        || (peer_caps->cie.sbc_info.num_subbands & ESP_A2D_SBC_CIE_NUM_SUBBANDS_8) == 0
+        || (peer_caps->cie.sbc_info.alloc_mthd & ESP_A2D_SBC_CIE_ALLOC_MTHD_LOUDNESS) == 0) {
         return false;
     }
     return true;

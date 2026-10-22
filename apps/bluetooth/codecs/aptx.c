@@ -373,8 +373,9 @@ static bool aptx_is_acceptable(const esp_a2d_mcc_t *peer_caps)
         || peer_caps->cie.vs_info.codec_id != A2DP_APTX_CODEC_ID_BLUETOOTH) {
         return false;
     }
-    if (peer_caps->cie.vs_info.mcc.aptx_info.samp_freq & 0x2 == 0
-        || peer_caps->cie.vs_info.mcc.aptx_info.ch_mode & 0x2 == 0) {
+    /* 44.1 (0x2) or 48 kHz (0x1), stereo (0x2) */
+    if ((peer_caps->cie.vs_info.mcc.aptx_info.samp_freq & (0x1 | 0x2)) == 0
+        || (peer_caps->cie.vs_info.mcc.aptx_info.ch_mode & 0x2) == 0) {
         return false;
     }
     return true;

@@ -520,8 +520,11 @@ static bool ldac_is_acceptable(const esp_a2d_mcc_t *peer_caps)
         || peer_caps->cie.vs_info.codec_id != A2DP_LDAC_CODEC_ID) {
         return false;
     }
-    if (peer_caps->cie.vs_info.mcc.ldac_info.samp_freq & A2DP_LDAC_SAMPLING_FREQ_44100 == 0
-        || peer_caps->cie.vs_info.mcc.ldac_info.ch_mode & A2DP_LDAC_CHANNEL_MODE_STEREO == 0
+    /* A rate the encoder runs at, stereo */
+    if ((peer_caps->cie.vs_info.mcc.ldac_info.samp_freq &
+         (A2DP_LDAC_SAMPLING_FREQ_44100 | A2DP_LDAC_SAMPLING_FREQ_48000 |
+          A2DP_LDAC_SAMPLING_FREQ_88200 | A2DP_LDAC_SAMPLING_FREQ_96000)) == 0
+        || (peer_caps->cie.vs_info.mcc.ldac_info.ch_mode & A2DP_LDAC_CHANNEL_MODE_STEREO) == 0
         || peer_caps->cie.vs_info.mcc.ldac_info.unknown0 != 0
         || peer_caps->cie.vs_info.mcc.ldac_info.unknown1 != 0) {
         return false;
