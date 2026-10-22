@@ -17299,3 +17299,394 @@
     recording_remote: "remote recording screen skin"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_BLUETOOTH_SETTINGS
+  desc: in settings menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Bluetooth Settings"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Bluetooth Settings"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Bluetooth Settings"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH
+  desc: in bluetooth settings menu, turns bluetooth on or off
+  user: core
+  <source>
+    *: none
+    bluetooth: "Bluetooth"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Bluetooth"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Bluetooth"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_DEVICES
+  desc: in bluetooth settings menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Devices"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Devices"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Devices"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_OPTIONS
+  desc: in bluetooth settings menu and bluetooth device menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Options"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Options"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Options"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIR_NEW
+  desc: first item in the bluetooth device list
+  user: core
+  <source>
+    *: none
+    bluetooth: "[Pair New Device]"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "[Pair New Device]"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Pair New Device"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIR_WITH
+  desc: bluetooth pairing confirmation, %s is the device name
+  user: core
+  <source>
+    *: none
+    bluetooth: "Pair with %s?"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Pair with %s?"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Pair with device?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CONNECT
+  desc: in bluetooth device menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Connect"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Connect"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Connect"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_DISCONNECT
+  desc: in bluetooth device menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Disconnect"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Disconnect"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Disconnect"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_FORGET
+  desc: in bluetooth device menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Forget"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Forget"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Forget"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_FORGET_DEVICE
+  desc: bluetooth forget confirmation, %s is the device name
+  user: core
+  <source>
+    *: none
+    bluetooth: "Forget %s?"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Forget %s?"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Forget device?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CHANGE_NAME
+  desc: in bluetooth device menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Change Name"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Change Name"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Change Name"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_AUTO_CONNECT
+  desc: in bluetooth options menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Automatically Connect"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Automatically Connect"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Automatically Connect"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CODEC
+  desc: in bluetooth options menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Codec"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Codec"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Codec"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CODEC_SBC_HIGH
+  desc: bluetooth codec choice
+  user: core
+  <source>
+    *: none
+    bluetooth: "SBC High Quality"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "SBC High Quality"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "S B C High Quality"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CODEC_SBC_STANDARD
+  desc: bluetooth codec choice
+  user: core
+  <source>
+    *: none
+    bluetooth: "SBC Standard Quality"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "SBC Standard Quality"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "S B C Standard Quality"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_SEARCHING
+  desc: in bluetooth pairing list while looking for devices
+  user: core
+  <source>
+    *: none
+    bluetooth: "Searching..."
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Searching..."
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Searching"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIRING
+  desc: splash while pairing a bluetooth device
+  user: core
+  <source>
+    *: none
+    bluetooth: "Pairing..."
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Pairing..."
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Pairing"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIRING_FAILED
+  desc: splash when pairing a bluetooth device failed
+  user: core
+  <source>
+    *: none
+    bluetooth: "Pairing failed"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Pairing failed"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Pairing failed"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_ENABLING
+  desc: splash while bluetooth starts
+  user: core
+  <source>
+    *: none
+    bluetooth: "Starting Bluetooth..."
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Starting Bluetooth..."
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Starting Bluetooth"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_ENABLE_FAILED
+  desc: splash when bluetooth could not be started
+  user: core
+  <source>
+    *: none
+    bluetooth: "Bluetooth failed to start"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Bluetooth failed to start"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Bluetooth failed to start"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_TURN_ON
+  desc: asked when opening the bluetooth device list with bluetooth off
+  user: core
+  <source>
+    *: none
+    bluetooth: "Turn Bluetooth on?"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Turn Bluetooth on?"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Turn Bluetooth on?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CONNECTED
+  desc: bluetooth device state shown in the device list
+  user: core
+  <source>
+    *: none
+    bluetooth: "Connected"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Connected"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Connected"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CONNECTING
+  desc: bluetooth device state shown in the device list
+  user: core
+  <source>
+    *: none
+    bluetooth: "Connecting..."
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Connecting..."
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Connecting"
+  </voice>
+</phrase>

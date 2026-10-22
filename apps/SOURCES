@@ -18,6 +18,9 @@ language.c
 main.c
 menu.c
 menus/menu_common.c
+#ifdef HAVE_BLUETOOTH
+menus/bluetooth_menu.c
+#endif
 menus/display_menu.c
 menus/theme_menu.c
 menus/plugin_menu.c

@@ -20,6 +20,10 @@ alarm
 backlight_brightness
 #endif
 
+#if defined(HAVE_BLUETOOTH)
+bluetooth
+#endif
+
 #if defined(HAVE_GENERAL_PURPOSE_LED)
 general_purpose_led
 #endif
