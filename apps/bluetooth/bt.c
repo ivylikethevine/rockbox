@@ -252,7 +252,6 @@ static void bt_codec_task(void)
 }
 
 static esp_a2d_conn_hdl_t conn_hdl;
-static bool sampr_switch_ongoing = false;
 static struct semaphore sink_control_sem;
 static struct event_queue sink_control_queue;
 static esp_a2d_mcc_t new_pref_mcc;
@@ -312,6 +311,58 @@ static bool make_pref_mcc(esp_a2d_mcc_t *mcc, uint8_t samp_freq) {
     return true;
 }
 
+/* Changes of our preferred config (sample rate switch, bitpool ceiling,
+ * the initial one on connecting) go to Bluedroid one at a time: a request
+ * made while one is in flight replaces what is sent next. Requests made
+ * on an open stream hold it suspended, once, until the last one is done;
+ * if the stream was running the first is sent on the suspend ack. */
+static bool pref_busy;          /* set_pref_mcc in flight */
+static bool pref_wait_suspend;  /* waiting for the suspend ack */
+static bool pref_again;         /* new_pref_mcc not sent yet */
+static bool pref_held;          /* we hold one bt_sink_suspend() */
+static bool src_rdy_sent;       /* the sink is checked once the first is done */
+
+static void pref_next(void) {
+    if (pref_busy || pref_wait_suspend)
+        return;
+
+    while (pref_again) {
+        pref_again = false;
+        if (esp_a2d_source_set_pref_mcc(conn_hdl, &new_pref_mcc) == ESP_OK) {
+            pref_busy = true;
+            return;
+        }
+    }
+
+    if (!src_rdy_sent) {
+        src_rdy_sent = true;
+        esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
+    }
+
+    if (pref_held) {
+        pref_held = false;
+        logf("starting playback: preferred config done");
+        bt_sink_resume();
+    }
+}
+
+static void pref_request(const esp_a2d_mcc_t *mcc, bool hold) {
+    new_pref_mcc = *mcc;
+    pref_again = true;
+    if (hold && !pref_held) {
+        pref_held = true;
+        logf("suspending playback: preferred config change");
+        if (bt_sink_suspend())
+            pref_wait_suspend = true;
+    }
+    pref_next();
+}
+
+static void pref_reset(void) {
+    pref_busy = pref_wait_suspend = pref_again = pref_held = false;
+    src_rdy_sent = false;
+}
+
 /* The stream config as last reported. A sink that sets up the stream
  * itself (it connected to us) picks the bitpool range; ask once per
  * connection for ours instead. */
@@ -322,19 +373,21 @@ static bool bitpool_checked;
 static void check_stream_bitpool(void) {
     if (bitpool_checked || !stream_cfg_valid || !bt_core_peer())
         return;
+    /* A change in progress brings our ceiling anyway, check what it ends
+     * up with */
+    if (pref_busy || pref_again || pref_wait_suspend)
+        return;
     bitpool_checked = true;
 
-    if (sampr_switch_ongoing || stream_cfg.max_bitpool >= bt_core_max_bitpool())
+    if (stream_cfg.max_bitpool >= bt_core_max_bitpool())
         return;
 
-    if (!make_pref_mcc(&new_pref_mcc, stream_cfg.samp_freq))
+    esp_a2d_mcc_t mcc;
+    if (!make_pref_mcc(&mcc, stream_cfg.samp_freq))
         return;
 
     logf("bitpool capped at %d by the sink, reconfiguring", stream_cfg.max_bitpool);
-    sampr_switch_ongoing = true;
-    if (!bt_sink_suspend()) {
-        esp_a2d_source_set_pref_mcc(conn_hdl, &new_pref_mcc);
-    }
+    pref_request(&mcc, true);
 }
 
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
@@ -347,12 +400,14 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 semaphore_init(&sink_control_sem, 1, 0);
                 queue_init(&sink_control_queue, false);
                 sink_suspended = 1;
-                sampr_switch_ongoing = false;
+                pref_held = pref_wait_suspend = false;
+                src_rdy_sent = false;
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                 bitpool_checked = false;
                 check_stream_bitpool();
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
                 stream_cfg_valid = false;
+                pref_reset();
                 if (current_codec != NULL) {
                     bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                     current_codec->deinit();
@@ -369,9 +424,9 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             if (param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY) {
                 pcm_switch_sink(PCM_SINK_BLUETOOTH);
                 sound_set_balance(global_settings.balance);
-                
-            } else if (sampr_switch_ongoing && param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_SUSPEND) {
-                esp_a2d_source_set_pref_mcc(conn_hdl, &new_pref_mcc);
+            } else if (pref_wait_suspend && param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_SUSPEND) {
+                pref_wait_suspend = false;
+                pref_next();
             }
             if (param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_SUSPEND && param->media_ctrl_stat.status == ESP_A2D_MEDIA_CTRL_ACK_SUCCESS) {
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
@@ -398,11 +453,8 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             };
             conn_hdl = param->a2d_report_snk_codec_caps_stat.conn_hdl;
             current_codec->init(&bt_pcm_sink.caps, &peer_info, &pref_mcc);
-            esp_err_t ret = esp_a2d_source_set_pref_mcc(param->a2d_report_snk_codec_caps_stat.conn_hdl, &pref_mcc);
-
-            if (ret != ESP_OK) {
-                panicf("%s a2dp source set pref mcc failed: %d", __func__, ret);
-            }
+            /* the stream isn't open yet, nothing to hold */
+            pref_request(&pref_mcc, false);
             break;
         }
         case ESP_A2D_REPORT_SNK_ALL_CODEC_CAPS_EVT: {
@@ -440,13 +492,12 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             return;
         case ESP_A2D_SRC_SET_PREF_MCC_EVT:
             logf("a2d %d %d", event, param->a2d_set_pref_mcc_stat.set_status);
-            if (sampr_switch_ongoing) {
-                sampr_switch_ongoing = false;
-                logf("starting playback: sampr switch done");
-                bt_sink_resume();
-            } else {
-                esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_CHECK_SRC_RDY);
-            }
+            pref_busy = false;
+            /* a new config gets reported, check the bitpool on that one */
+            if (param->a2d_set_pref_mcc_stat.set_status == ESP_BT_STATUS_SUCCESS)
+                stream_cfg_valid = false;
+            pref_next();
+            check_stream_bitpool();
             return;
         case ESP_A2D_AUDIO_STATE_EVT:
             logf("a2d %d %d\n", event, param->audio_stat.state);
@@ -569,16 +620,11 @@ void bt_sink_unlock(void) {
 }
 
 void bt_sink_set_freq(uint16_t freq) {
-    sampr_switch_ongoing = true;
+    esp_a2d_mcc_t mcc;
 
-    logf("suspending playback: sampr switch start, to %d", freq);
-
-    bt_sink_suspend();
-    current_codec->set_freq(bt_pcm_sink.caps.samprs[freq], &new_pref_mcc);
-
-    if (bt_current_state == ESP_A2D_AUDIO_STATE_SUSPEND) {
-        esp_a2d_source_set_pref_mcc(conn_hdl, &new_pref_mcc);
-    }
+    logf("sampr switch to %d", freq);
+    current_codec->set_freq(bt_pcm_sink.caps.samprs[freq], &mcc);
+    pref_request(&mcc, true);
 }
 
 void bt_sink_play(const void* addr, size_t size) {
