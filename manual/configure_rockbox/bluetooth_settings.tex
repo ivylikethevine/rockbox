@@ -1,0 +1,74 @@
+The \dap{} can play through Bluetooth headphones and speakers (A2DP),
+which can also control playback with their own buttons (AVRCP). Only one
+of them plays at a time. While one is connected, all sound goes to it;
+when it disconnects, sound goes back to the \dap{} itself.
+
+\section{Bluetooth}
+Turns Bluetooth \setting{On} or \setting{Off}. Bluetooth stays on, or off,
+across restarts. If Bluetooth can't be started, a message says so and the
+setting goes back to \setting{Off}.
+
+\section{\label{ref:BluetoothDevices}Devices}
+Lists \setting{[Pair New Device]} followed by the devices paired with
+the \dap{}. The device that is connected, or being connected to, is marked
+as such. If Bluetooth is off, you are asked whether to turn it on first.
+
+\subsection{Pairing a Device}
+Put the headphones or speaker in pairing mode, as its manual describes,
+then select \setting{[Pair New Device]}. The \dap{} keeps searching while
+the list is open and shows the audio devices it finds that are not paired
+yet. Devices that don't give a name are left out.
+
+Select a device and answer \setting{Yes} to ``Pair with \ldots?''.
+\setting{No} brings you back to the list. While ``Pairing\ldots'' is shown
+the \dap{} connects to the device and bonds with it; pressing
+\ActionStdCancel{} gives up. Once paired, the device is connected and you
+are back in \setting{Devices}. If pairing fails, a message says so and the
+search goes on.
+
+\subsection{Device Menu}
+Selecting a paired device opens a menu titled with its name:
+
+\begin{description}
+  \item[Connect / Disconnect.] Connects to the device, or disconnects it
+    if it is connected or being connected to. Nothing else is shown while
+    this happens: the entry changes once the connection does, and themes
+    can show the state of the connection. Connecting to a device while
+    another one is connected disconnects the other one first.
+  \item[Forget.] After you confirm ``Forget \ldots?'', removes the pairing
+    and everything the \dap{} keeps about the device, and goes back to
+    \setting{Devices}. To use the device again, pair it again. You may also
+    have to remove the \dap{} from the device's own list of pairings.
+  \item[Change Name.] Opens the keyboard to give the device another name
+    in the \dap{}'s lists. Clearing the name brings back the device's own
+    name.
+  \item[Options.] Sets the options below for this device only. Until you
+    set an option for a device, it follows the global option in
+    \setting{Bluetooth Settings $\rightarrow$ Options}.
+\end{description}
+
+\section{\label{ref:BluetoothOptions}Options}
+These options apply to every paired device for which they were not set in
+the device's own \setting{Options}.
+
+\begin{description}
+  \item[Automatically Connect.] If \setting{Yes}, the \dap{} tries to
+    connect to the device whenever Bluetooth is turned on, including at
+    start up. Devices set this way are tried in turn until one of them
+    answers. The \dap{} also lets these devices connect to it, so a pair
+    of headphones switched on later can connect by itself. Choosing a
+    device in the \setting{Devices} menu stops the automatic attempts.
+  \item[Codec.] The sound quality sent to the device.
+    \setting{SBC High Quality} uses up to about 330~kbit/s and
+    \setting{SBC Standard Quality} up to about 230~kbit/s, which is easier
+    to keep up with when the radio connection is poor. Either way, Rockbox
+    lowers the rate on its own while the connection can't keep up. A
+    change takes effect the next time the device connects.
+\end{description}
+
+\note{Whether Bluetooth is on, and the global \setting{Options}, are kept
+  with the other settings in \fname{/.rockbox/config.cfg}. The pairings and
+  everything set for each device are kept in
+  \fname{/.rockbox/bt\_config.conf}, one section per device. Device
+  settings are stored as \config{RbAlias}, \config{RbAutoConnect} and
+  \config{RbCodec} entries next to the pairing keys.}
