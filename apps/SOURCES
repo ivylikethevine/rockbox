@@ -193,6 +193,7 @@ keymaps/keymap-touchscreen.c
 bluetooth/bt.c
 bluetooth/bt_core.c
 bluetooth/bt_sw_volume.c
+bluetooth/bt_volume.c
 bluetooth/codecs/sbc.c
 bluetooth/codecs/ldac.c
 bluetooth/codecs/aptx.c

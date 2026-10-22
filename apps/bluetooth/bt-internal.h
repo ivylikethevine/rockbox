@@ -26,6 +26,7 @@
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
 #include "bt.h"
+#include "pcm_sink.h"
 
 /* bt.c, registered by the core */
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
@@ -41,6 +42,13 @@ size_t bt_read_pcm(uint8_t *buf, size_t len);
 /* bt.c: the A2DP link is gone or going, use the built-in output again
  * and drop the encoder */
 void bt_sink_lost(void);
+
+/* bt_volume.c: the Bluetooth output's volume */
+extern const struct pcm_sink_volume bt_pcm_sink_volume;
+/* The volume for the device that connected, saved for it on leaving */
+void bt_volume_connected(const uint8_t *addr);
+void bt_volume_disconnected(void);
+void bt_volume_debug(char *buf, size_t len);
 
 /* bt_core.c, A2DP connection changes passed on by bt_a2d_cb() */
 void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,

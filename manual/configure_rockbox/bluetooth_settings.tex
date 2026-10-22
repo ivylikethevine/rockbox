@@ -9,6 +9,15 @@ on through them; if not, the \dap{} does what
 unplugged. With \setting{Pause and Resume}, playback then resumes when
 the Bluetooth device connects again, or when headphones are plugged in.}
 
+While a Bluetooth device plays, the volume controls set its volume, which
+is separate from the headphone volume. It goes from $-127$ to 0, the
+device's maximum. Devices that support it set the volume themselves, and
+changing it with their own buttons shows on the \dap{} too; for others
+the \dap{} lowers the sound it sends. Each device's volume is remembered
+and set again when it connects. A device connecting for the first time
+starts at a low volume. \setting{Volume Limit} only applies to the
+headphone volume and can't be changed while a Bluetooth device plays.
+
 \section{Bluetooth}
 Turns Bluetooth \setting{On} or \setting{Off}. Bluetooth stays on, or off,
 across restarts. If Bluetooth can't be started, a message says so and the

@@ -50,6 +50,7 @@
 #define BT_KEY_ALIAS    "RbAlias"   /* the name the user gave it */
 #define BT_KEY_AUTO     "RbAutoConnect"
 #define BT_KEY_CODEC    "RbCodec"
+#define BT_KEY_VOLUME   "RbVolume"
 
 /* Highest SBC bitpool, the A2DP spec's high and middle quality for
  * joint stereo at 44.1 kHz */
@@ -726,14 +727,28 @@ bool bt_rename(const uint8_t *addr, const char *name)
 
 static const char *option_key(enum bt_option opt)
 {
-    return opt == BT_OPT_AUTO_CONNECT ? BT_KEY_AUTO : BT_KEY_CODEC;
+    switch (opt)
+    {
+    case BT_OPT_AUTO_CONNECT:
+        return BT_KEY_AUTO;
+    case BT_OPT_CODEC:
+        return BT_KEY_CODEC;
+    default:
+        return BT_KEY_VOLUME;
+    }
 }
 
 static int option_default(enum bt_option opt)
 {
-    if (opt == BT_OPT_AUTO_CONNECT)
+    switch (opt)
+    {
+    case BT_OPT_AUTO_CONNECT:
         return global_settings.bluetooth_auto_connect;
-    return global_settings.bluetooth_codec;
+    case BT_OPT_CODEC:
+        return global_settings.bluetooth_codec;
+    default:
+        return BT_VOLUME_DEFAULT;
+    }
 }
 
 int bt_get_option(const uint8_t *addr, enum bt_option opt)

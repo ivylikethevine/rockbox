@@ -92,7 +92,11 @@ bool bt_rename(const uint8_t *addr, const char *name);
 enum bt_option {
     BT_OPT_AUTO_CONNECT,    /* bool: connect when Bluetooth comes up */
     BT_OPT_CODEC,           /* enum bt_codec, used from the next connection */
+    BT_OPT_VOLUME,          /* AVRCP absolute volume 0..127, kept by bt_volume.c */
 };
+
+/* Volume of a device until it has its own: about 40%, not to start loud */
+#define BT_VOLUME_DEFAULT   51
 
 /* The codec a device is asked to use. If it can't, it gets the best of
  * the ones below that it can: SBC, which every device has, at the end.

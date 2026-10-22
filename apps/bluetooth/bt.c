@@ -201,12 +201,15 @@ static const char *bt_codec_line(int line, char *buf, size_t len)
             return "sampr -";
         snprintf(buf, len, "sampr %lu", cur_sampr);
         return buf;
+    case 4:
+        bt_volume_debug(buf, len);
+        return buf;
     default:
         return NULL;
     }
 }
 
-#define BT_INFO_CODEC_ITEMS 4
+#define BT_INFO_CODEC_ITEMS 5
 
 const char * bt_heap_info_getname(int selected_item, void * data, char * buffer, size_t buffer_len)
 {
@@ -322,12 +325,6 @@ struct pcm_sink bt_pcm_sink;
 static esp_a2d_mcc_t peer_caps;
 
 static int sink_suspended = 1;
-
-static int bt_volume = 127;
-static int bt_balance = 0;
-static bool bt_has_avrcp_abs_vol = false;
-
-static void bt_update_volume(void);
 
 bool bt_sink_suspend(void) {
     if (++sink_suspended == 1) {
@@ -507,6 +504,7 @@ static void sink_lost(void) {
  * encoder is set up again on the next connection */
 void bt_sink_lost(void) {
     sink_lost();
+    bt_volume_disconnected();
 
     link_open = false;
     codec_ready = false;
@@ -514,8 +512,6 @@ void bt_sink_lost(void) {
         bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
         current_codec->deinit();
         current_codec = NULL;
-        bt_has_avrcp_abs_vol = false;
-        bt_volume = 127;
     }
     codec_used = NULL;
 }
@@ -603,6 +599,7 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 src_rdy_sent = false;
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                 stream_check = STREAM_CHECK;
+                bt_volume_connected(param->conn_stat.remote_bda);
                 conn_hdl = param->conn_stat.conn_hdl;
                 link_mtu = param->conn_stat.audio_mtu;
                 /* Not set up here: Bluedroid reports the connection before
@@ -681,56 +678,6 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
         default:
             logf("a2d %d\n", event);
         return;
-    }
-}
-
-void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param) {
-    switch (event) {
-        case ESP_AVRC_CT_CONNECTION_STATE_EVT:
-            logf("avrc-ct %d %d\n", event, param->conn_stat.connected);
-            if (param->conn_stat.connected) {
-                esp_err_t err = esp_avrc_ct_send_register_notification_cmd(4, ESP_AVRC_RN_VOLUME_CHANGE, 0);
-                if (err != ESP_OK) {
-                    panicf("error registering for volume change: %d", err);
-                }
-            }
-            // Don't worry about disconnect events; if there's a serious problem
-            // then the entire bluetooth connection will drop out, which is handled
-            // elsewhere.
-            break;
-        case ESP_AVRC_CT_CHANGE_NOTIFY_EVT:
-            logf("avrc-ct %d %d\n", event, param->change_ntf.event_id);
-            if (param->change_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
-                logf("avrc-ct new vol %d\n", param->change_ntf.event_parameter.volume);
-                if (bt_volume != param->change_ntf.event_parameter.volume) {
-                    global_status.last_volume_change = current_tick;
-                }
-                bt_volume = param->change_ntf.event_parameter.volume;
-                if (!bt_has_avrcp_abs_vol) {
-                    bt_has_avrcp_abs_vol = true;
-                    bt_update_volume();
-                }
-                if (!param->change_ntf.is_interim) {
-                    // Resubscribe to volume facts
-                    esp_err_t err = esp_avrc_ct_send_register_notification_cmd(4, ESP_AVRC_RN_VOLUME_CHANGE, 0);
-                    if (err != ESP_OK) {
-                        panicf("error registering for volume change: %d", err);
-                    }
-                }
-            }
-            break;
-        case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT:
-            logf("avrc-ct %d %d\n", event, param->psth_rsp.key_code);
-            if (param->psth_rsp.key_state == 0) { 
-                esp_err_t err = esp_avrc_ct_send_passthrough_cmd(0, param->psth_rsp.key_code, ESP_AVRC_PT_CMD_STATE_RELEASED);
-                if (err != ESP_OK) {
-                    panicf("error sending volume change: %d", err);
-                }
-            }
-            break;
-        default:
-            logf("avrc-ct %d\n", event);
-            return;
     }
 }
 
@@ -871,83 +818,6 @@ size_t bt_read_pcm(uint8_t *buf, size_t len) {
     }
     return written;
 }
-
-static void bt_update_volume(void) {
-    if (bt_has_avrcp_abs_vol) {
-        esp_err_t err = esp_avrc_ct_send_set_absolute_volume_cmd(2, bt_volume);
-        if (err != ESP_OK) {
-            panicf("error sending volume change: %d", err);
-        }
-        int l = 0;
-        int r = 0;
-        if (bt_balance > 0) {
-            l = (-730 * bt_balance) / 100;
-        } else if (bt_balance < 0) {
-            r = (730 * bt_balance) / 100;
-        }
-        bt_sw_volume_set_volume(l, r);
-    } else {
-        if (bt_volume == 0) {
-            bt_sw_volume_set_volume(-730, -730);
-            return;
-        }
-        int volume = (bt_volume - 127) * 5;
-        int l = volume, r = volume;
-
-        if (bt_balance > 0) {
-            l -= (l + 730) * bt_balance / 100;
-        } else if (bt_balance < 0) {
-            r += (r + 730) * bt_balance / 100;
-        }
-        bt_sw_volume_set_volume(l, r);
-    }
-}
-
-static int bt_get_volume(void) {
-    return bt_volume - 127;
-}
-
-static void bt_set_volume(int volume) {
-    bt_volume = volume + 127;
-    bt_update_volume();
-}
-
-static void bt_set_balance(int balance) {
-    bt_balance = balance;
-    bt_update_volume();
-}
-
-static void bt_adjust_volume(int steps) {
-    if (bt_has_avrcp_abs_vol) {
-        uint8_t cmd = steps > 0 ? ESP_AVRC_PT_CMD_VOL_UP : ESP_AVRC_PT_CMD_VOL_DOWN;
-        esp_err_t err = esp_avrc_ct_send_passthrough_cmd(0, cmd, ESP_AVRC_PT_CMD_STATE_PRESSED);
-        if (err != ESP_OK) {
-            panicf("error sending volume change: %d", err);
-        }
-    } else {
-        int new_volume = bt_volume + steps;
-        if (new_volume < 0) {
-            new_volume = 0;
-        } else if (new_volume > 127) {
-            new_volume = 127;
-        }
-        bt_volume = new_volume;
-        bt_update_volume();
-    }
-}
-
-struct pcm_sink_volume bt_pcm_sink_volume = {
-    .volume_min = -127,
-    .volume_max = 0,
-    .volume_default = 0,
-    .volume_step = 1,
-    .volume_numdecimals = 0,
-    .volume_unit = "",
-    .get_volume = bt_get_volume,
-    .set_volume = bt_set_volume,
-    .set_balance = bt_set_balance,
-    .adjust_volume = bt_adjust_volume,
-};
 
 struct pcm_sink bt_pcm_sink = {
     .caps = {
