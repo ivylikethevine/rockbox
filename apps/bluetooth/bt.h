@@ -94,9 +94,16 @@ enum bt_option {
     BT_OPT_CODEC,           /* enum bt_codec, used from the next connection */
 };
 
+/* The codec a device is asked to use. If it can't, it gets the best of
+ * the ones below that it can: SBC, which every device has, at the end.
+ * Values are stored, new ones go at the end. */
 enum bt_codec {
     BT_CODEC_SBC_HIGH,      /* bitpool up to 53, ~328 kbps */
     BT_CODEC_SBC_STANDARD,  /* bitpool up to 35, ~229 kbps */
+    BT_CODEC_APTX,
+    BT_CODEC_APTX_HD,
+    BT_CODEC_LDAC,
+    BT_NUM_CODECS
 };
 
 int bt_get_option(const uint8_t *addr, enum bt_option opt);

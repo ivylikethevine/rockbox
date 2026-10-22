@@ -41,14 +41,33 @@
 
 static struct a2dp_codec *current_codec = NULL;
 
-#define NUM_CODECS 4
-
-static struct a2dp_codec *codec_list[NUM_CODECS] = {
-    &a2dp_codec_ldac,
-    &a2dp_codec_aptx_hd,
-    &a2dp_codec_aptx,
-    &a2dp_codec_sbc,
+/* The codec choices from best to plainest. A sink gets the one its Codec
+ * option asks for or, if it doesn't have it, the best one below it that
+ * it has. SBC is twice: Standard only differs by a lower bitpool ceiling,
+ * which the SBC encoder takes from the option. */
+static const struct codec_choice {
+    enum bt_codec option;
+    struct a2dp_codec *codec;
+    const char *name;
+} codec_choices[] = {
+    { BT_CODEC_LDAC,         &a2dp_codec_ldac,    "LDAC" },
+    { BT_CODEC_APTX_HD,      &a2dp_codec_aptx_hd, "aptX HD" },
+    { BT_CODEC_APTX,         &a2dp_codec_aptx,    "aptX" },
+    { BT_CODEC_SBC_HIGH,     &a2dp_codec_sbc,     "SBC High" },
+    { BT_CODEC_SBC_STANDARD, &a2dp_codec_sbc,     "SBC Standard" },
 };
+
+/* What the sink was asked for and what it got */
+static const struct codec_choice *codec_wanted;
+static const struct codec_choice *codec_used;
+
+static const struct codec_choice *codec_choice(enum bt_codec option)
+{
+    for (size_t i = 0; i < ARRAYLEN(codec_choices); i++)
+        if (codec_choices[i].option == option)
+            return &codec_choices[i];
+    return codec_choice(BT_CODEC_SBC_HIGH);
+}
 
 extern unsigned char btbuf[];
 
@@ -291,24 +310,17 @@ bool bt_sink_resume(void) {
     return false;
 }
 
-/* Our SBC config at the stream's sampling frequency, bitpool capped by
- * the device's codec option */
-static bool make_pref_mcc(esp_a2d_mcc_t *mcc, uint8_t samp_freq) {
-    unsigned long sampr;
+/* The A2DP link and the encoder for it */
+static bool link_open;
+static uint16_t link_mtu;
+static bool codec_ready;
+/* The sample rate the encoder is set up for */
+static unsigned long cur_sampr;
 
-    if (current_codec != &a2dp_codec_sbc)
-        return false;
-
-    switch (samp_freq) {
-        case ESP_A2D_SBC_CIE_SF_48K: sampr = SAMPR_48; break;
-        case ESP_A2D_SBC_CIE_SF_44K: sampr = SAMPR_44; break;
-        case ESP_A2D_SBC_CIE_SF_32K: sampr = SAMPR_32; break;
-        case ESP_A2D_SBC_CIE_SF_16K: sampr = SAMPR_16; break;
-        default: return false;
-    }
-
-    current_codec->set_freq(sampr, mcc);
-    return true;
+/* Our config for the codec in use at the current sample rate. For SBC
+ * the bitpool is capped by the device's codec option. */
+static void make_pref_mcc(esp_a2d_mcc_t *mcc) {
+    current_codec->set_freq(cur_sampr, mcc);
 }
 
 /* Changes of our preferred config (sample rate switch, bitpool ceiling,
@@ -364,38 +376,81 @@ static void pref_reset(void) {
 }
 
 /* The stream config as last reported. A sink that sets up the stream
- * itself (it connected to us) picks the bitpool range, above or below
- * what the codec option asks for; ask once per connection for ours
- * instead. */
-static esp_a2d_cie_sbc_t stream_cfg;
+ * itself (it connected to us) picks the codec and, for SBC, the bitpool
+ * range; ask once per connection for ours instead. If the sink won't,
+ * the encoder follows what it set up. */
+static esp_a2d_mcc_t stream_cfg;
 static bool stream_cfg_valid;
-static bool bitpool_checked;
+static enum {
+    STREAM_CHECK,               /* not asked yet */
+    STREAM_ASKED,               /* asked for ours */
+    STREAM_SETTLED,             /* ours, or the sink's after asking */
+} stream_check;
 
-static void check_stream_bitpool(void) {
-    if (bitpool_checked || !stream_cfg_valid || !bt_core_peer())
+static bool stream_is(const esp_a2d_mcc_t *mcc) {
+    if (A2D_GetCodecType((const uint8_t *)&stream_cfg) !=
+        A2D_GetCodecType((const uint8_t *)mcc))
+        return false;
+    if (mcc->codec_type == ESP_A2D_MCT_SBC)
+        return stream_cfg.cie.sbc_info.max_bitpool ==
+               mcc->cie.sbc_info.max_bitpool;
+    return true;
+}
+
+static void codec_init(void);
+
+/* Run the encoder the sink's way: the codec of the stream, with the
+ * stream config standing in for the sink's caps */
+static void follow_stream(void) {
+    tA2D_CODEC type = A2D_GetCodecType((const uint8_t *)&stream_cfg);
+    const struct codec_choice *c = NULL;
+
+    for (size_t i = 0; i < ARRAYLEN(codec_choices); i++) {
+        if (codec_choices[i].codec->codec_id == type) {
+            c = &codec_choices[i];
+            break;
+        }
+    }
+    if (c == NULL) {
+        logf("stream codec %08lx not supported", (unsigned long)type);
         return;
-    /* A change in progress brings our ceiling anyway, check what it ends
+    }
+
+    logf("sink keeps its own config, following it");
+    current_codec->deinit();
+    current_codec = c->codec;
+    codec_used = c;
+    peer_caps = stream_cfg;
+    codec_init();
+}
+
+static void check_stream_cfg(void) {
+    if (stream_check == STREAM_SETTLED || !stream_cfg_valid || !codec_ready)
+        return;
+    /* A change in progress brings our config anyway, check what it ends
      * up with */
     if (pref_busy || pref_again || pref_wait_suspend)
         return;
-    bitpool_checked = true;
 
     esp_a2d_mcc_t mcc;
-    if (!make_pref_mcc(&mcc, stream_cfg.samp_freq) ||
-        stream_cfg.max_bitpool == mcc.cie.sbc_info.max_bitpool)
+    make_pref_mcc(&mcc);
+    if (stream_is(&mcc)) {
+        stream_check = STREAM_SETTLED;
         return;
+    }
 
-    logf("bitpool ceiling %d set by the sink, reconfiguring", stream_cfg.max_bitpool);
-    pref_request(&mcc, true);
+    if (stream_check == STREAM_CHECK) {
+        stream_check = STREAM_ASKED;
+        logf("stream config set by the sink, reconfiguring");
+        pref_request(&mcc, true);
+    } else {
+        stream_check = STREAM_SETTLED;
+        follow_stream();
+    }
 }
 
 /* Whether audio goes to the A2DP sink */
 static bool sink_active;
-
-/* The A2DP link and the encoder for it */
-static bool link_open;
-static uint16_t link_mtu;
-static bool codec_ready;
 
 /* The Bluetooth output went away and audio goes back to the jack. With
  * headphones there playback carries on; without, it goes as if they had
@@ -427,6 +482,26 @@ void bt_sink_lost(void) {
         bt_has_avrcp_abs_vol = false;
         bt_volume = 127;
     }
+    codec_used = NULL;
+}
+
+/* Set the encoder up for current_codec and peer_caps, at the sink's
+ * default rate. Returns our config at that rate. */
+static void codec_init_mcc(esp_a2d_mcc_t *pref_mcc) {
+    struct a2dp_peer_info peer_info = {
+        .peer_mtu = link_mtu,
+        .peer_caps = &peer_caps,
+        .conn_hdl = conn_hdl,
+        .is_edr = btc_av_is_peer_edr(),
+    };
+    current_codec->init(&bt_pcm_sink.caps, &peer_info, pref_mcc);
+    cur_sampr = bt_pcm_sink.caps.samprs[bt_pcm_sink.caps.default_freq];
+    current_codec->set_freq(cur_sampr, pref_mcc);
+}
+
+static void codec_init(void) {
+    esp_a2d_mcc_t pref_mcc;
+    codec_init_mcc(&pref_mcc);
 }
 
 /* The encoder is set up once both the link is open and a codec has been
@@ -439,15 +514,28 @@ static void codec_setup(void) {
     codec_ready = true;
 
     esp_a2d_mcc_t pref_mcc;
-    struct a2dp_peer_info peer_info = {
-        .peer_mtu = link_mtu,
-        .peer_caps = &peer_caps,
-        .conn_hdl = conn_hdl,
-        .is_edr = btc_av_is_peer_edr(),
-    };
-    current_codec->init(&bt_pcm_sink.caps, &peer_info, &pref_mcc);
+    codec_init_mcc(&pref_mcc);
     /* nothing is streaming yet, nothing to hold */
     pref_request(&pref_mcc, false);
+}
+
+/* Pick the codec for the sink from its caps, see codec_choices */
+static void codec_pick(const esp_a2d_sep_mcc_t *seps, int num) {
+    codec_wanted = codec_choice(bt_core_codec());
+
+    for (const struct codec_choice *c = codec_wanted;
+         c < &codec_choices[ARRAYLEN(codec_choices)]; c++) {
+        for (int i = 0; i < num; i++) {
+            if (c->codec->is_acceptable(&seps[i].mcc)) {
+                logf("codec %s, asked for %s", c->name, codec_wanted->name);
+                current_codec = c->codec;
+                codec_used = c;
+                peer_caps = seps[i].mcc;
+                return;
+            }
+        }
+    }
+    logf("no codec in common with the sink");
 }
 
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
@@ -463,14 +551,14 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 pref_held = pref_wait_suspend = false;
                 src_rdy_sent = false;
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
-                bitpool_checked = false;
+                stream_check = STREAM_CHECK;
                 conn_hdl = param->conn_stat.conn_hdl;
                 link_mtu = param->conn_stat.audio_mtu;
                 /* Not set up here: Bluedroid reports the connection before
                  * it counts it as open, and setting up asks about the
                  * link. One of the caps events below follows. */
                 link_open = true;
-                check_stream_bitpool();
+                check_stream_cfg();
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
                 stream_cfg_valid = false;
                 pref_reset();
@@ -511,51 +599,31 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
              * before, the all caps event comes later otherwise */
             codec_setup();
             break;
-        case ESP_A2D_REPORT_SNK_ALL_CODEC_CAPS_EVT: {
+        case ESP_A2D_REPORT_SNK_ALL_CODEC_CAPS_EVT:
             logf("a2d %d %d", event, param->a2d_report_snk_all_codec_caps_stat.sep_num);
             /* the encoder is running on what was picked already */
             if (codec_ready)
                 break;
-            bool done = false;
-            for (int codec_idx = 0; codec_idx < NUM_CODECS; codec_idx++) {
-                current_codec = codec_list[codec_idx];
-                for (uint32_t i = 0; i < param->a2d_report_snk_all_codec_caps_stat.sep_num; i++) {
-                    esp_a2d_mcc_t *sink_mcc = &param->a2d_report_snk_all_codec_caps_stat.sep_mcc[i].mcc;
-                    if (current_codec->is_acceptable(sink_mcc)) {
-                        memcpy(&peer_caps, sink_mcc, sizeof(esp_a2d_mcc_t));
-                        done = true;
-                        break;
-                    }
-                }
-                if (done) {
-                    break;
-                }
-            }
-            if (!done) { 
-                panicf("Unable to initialize suitable codec");
-            }
+            codec_pick(param->a2d_report_snk_all_codec_caps_stat.sep_mcc,
+                       param->a2d_report_snk_all_codec_caps_stat.sep_num);
             codec_setup();
             break;
-        }
         case ESP_A2D_AUDIO_CFG_EVT:
-            if (param->audio_cfg.mcc.codec_type == ESP_A2D_MCT_SBC) {
-                logf("a2d cfg bitpool %d-%d",
-                     param->audio_cfg.mcc.cie.sbc_info.min_bitpool,
-                     param->audio_cfg.mcc.cie.sbc_info.max_bitpool);
-                conn_hdl = param->audio_cfg.conn_hdl;
-                stream_cfg = param->audio_cfg.mcc.cie.sbc_info;
-                stream_cfg_valid = true;
-                check_stream_bitpool();
-            }
+            logf("a2d cfg %08lx", (unsigned long)
+                 A2D_GetCodecType((const uint8_t *)&param->audio_cfg.mcc));
+            conn_hdl = param->audio_cfg.conn_hdl;
+            stream_cfg = param->audio_cfg.mcc;
+            stream_cfg_valid = true;
+            check_stream_cfg();
             return;
         case ESP_A2D_SRC_SET_PREF_MCC_EVT:
             logf("a2d %d %d", event, param->a2d_set_pref_mcc_stat.set_status);
             pref_busy = false;
-            /* a new config gets reported, check the bitpool on that one */
+            /* a new config gets reported, check that one */
             if (param->a2d_set_pref_mcc_stat.set_status == ESP_BT_STATUS_SUCCESS)
                 stream_cfg_valid = false;
             pref_next();
-            check_stream_bitpool();
+            check_stream_cfg();
             return;
         case ESP_A2D_AUDIO_STATE_EVT:
             logf("a2d %d %d\n", event, param->audio_stat.state);
@@ -681,7 +749,8 @@ void bt_sink_set_freq(uint16_t freq) {
     esp_a2d_mcc_t mcc;
 
     logf("sampr switch to %d", freq);
-    current_codec->set_freq(bt_pcm_sink.caps.samprs[freq], &mcc);
+    cur_sampr = bt_pcm_sink.caps.samprs[freq];
+    make_pref_mcc(&mcc);
     pref_request(&mcc, true);
 }
 

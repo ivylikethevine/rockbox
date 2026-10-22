@@ -91,6 +91,9 @@ static int bt_dev_codec(void)
     static const struct opt_items names[] = {
         [BT_CODEC_SBC_HIGH] = { STR(LANG_BLUETOOTH_CODEC_SBC_HIGH) },
         [BT_CODEC_SBC_STANDARD] = { STR(LANG_BLUETOOTH_CODEC_SBC_STANDARD) },
+        [BT_CODEC_APTX] = { STR(LANG_BLUETOOTH_CODEC_APTX) },
+        [BT_CODEC_APTX_HD] = { STR(LANG_BLUETOOTH_CODEC_APTX_HD) },
+        [BT_CODEC_LDAC] = { STR(LANG_BLUETOOTH_CODEC_LDAC) },
     };
     int val = bt_get_option(cur_dev.addr, BT_OPT_CODEC);
     int old = val;

@@ -51,9 +51,10 @@
 #define BT_KEY_AUTO     "RbAutoConnect"
 #define BT_KEY_CODEC    "RbCodec"
 
-/* Highest SBC bitpool per enum bt_codec, the A2DP spec's high and
- * middle quality for joint stereo at 44.1 kHz */
-static const uint8_t codec_max_bitpool[] = { 53, 35 };
+/* Highest SBC bitpool, the A2DP spec's high and middle quality for
+ * joint stereo at 44.1 kHz */
+#define BT_SBC_HIGH_BITPOOL     53
+#define BT_SBC_STANDARD_BITPOOL 35
 
 /* Discovery runs in rounds of this many 1.28 s units */
 #define BT_INQ_LEN      5
@@ -383,12 +384,18 @@ static void update_scan_mode(void)
     esp_bt_gap_set_scan_mode(mode, ESP_BT_NON_DISCOVERABLE);
 }
 
-int bt_core_max_bitpool(void)
+enum bt_codec bt_core_codec(void)
 {
     int codec = bt_get_option(peer, BT_OPT_CODEC);
-    if (codec < 0 || codec >= (int)ARRAYLEN(codec_max_bitpool))
+    if (codec < 0 || codec >= BT_NUM_CODECS)
         codec = BT_CODEC_SBC_HIGH;
-    return codec_max_bitpool[codec];
+    return codec;
+}
+
+int bt_core_max_bitpool(void)
+{
+    return bt_core_codec() == BT_CODEC_SBC_STANDARD ?
+        BT_SBC_STANDARD_BITPOOL : BT_SBC_HIGH_BITPOOL;
 }
 
 void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,

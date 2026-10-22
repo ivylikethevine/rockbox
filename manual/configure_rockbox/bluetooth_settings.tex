@@ -66,12 +66,20 @@ devices.
     answers. The \dap{} also lets these devices connect to it, so a pair
     of headphones switched on later can connect by itself. Choosing a
     device in the \setting{Devices} menu stops the automatic attempts.
-  \item[Codec.] The sound quality sent to the device.
+  \item[Codec.] How sound is coded for the device, from plainest to
+    best: \setting{SBC Standard Quality}, \setting{SBC High Quality},
+    \setting{aptX}, \setting{aptX HD} and \setting{LDAC}. All devices
+    support SBC; the others only some. If the device doesn't support the
+    codec chosen here, it gets the best one below it that it supports, so
+    in the end SBC. The codec is used whoever starts the connection: if the
+    device sets up something else, it is asked to switch.
+
     \setting{SBC High Quality} uses up to about 330~kbit/s and
     \setting{SBC Standard Quality} up to about 230~kbit/s, which is easier
     to keep up with when the radio connection is poor. Either way, Rockbox
-    lowers the rate on its own while the connection can't keep up. A
-    change takes effect the next time the device connects.
+    lowers the SBC rate on its own while the connection can't keep up.
+    The other codecs need more processing power. A change takes effect the
+    next time the device connects.
 \end{description}
 
 \note{Whether Bluetooth is on, and the \setting{Device Defaults}, are kept

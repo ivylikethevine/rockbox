@@ -17555,6 +17555,57 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_BLUETOOTH_CODEC_APTX
+  desc: bluetooth codec choice
+  user: core
+  <source>
+    *: none
+    bluetooth: "aptX"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "aptX"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "apt X"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CODEC_APTX_HD
+  desc: bluetooth codec choice
+  user: core
+  <source>
+    *: none
+    bluetooth: "aptX HD"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "aptX HD"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "apt X H D"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_CODEC_LDAC
+  desc: bluetooth codec choice
+  user: core
+  <source>
+    *: none
+    bluetooth: "LDAC"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "LDAC"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "L DAC"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_BLUETOOTH_SEARCHING
   desc: in bluetooth pairing list while looking for devices
   user: core

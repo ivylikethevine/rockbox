@@ -25,6 +25,7 @@
 
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
+#include "bt.h"
 
 /* bt.c, registered by the core */
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
@@ -46,6 +47,8 @@ void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr);
 /* The connected A2DP sink, NULL if there is none */
 const uint8_t *bt_core_peer(void);
+/* The codec the A2DP sink is asked to use, from its codec option */
+enum bt_codec bt_core_codec(void);
 /* SBC bitpool ceiling for the A2DP sink, from its codec option */
 int bt_core_max_bitpool(void);
 
