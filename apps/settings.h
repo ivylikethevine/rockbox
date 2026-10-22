@@ -953,6 +953,13 @@ struct user_settings
     unsigned char rwrs_file[MAX_FILENAME+1];  /* last remote-wrs */
 #endif
 #endif
+#ifdef HAVE_BLUETOOTH
+    bool bluetooth;              /* Bluetooth on or off */
+    /* What a device does unless set for it: kept with the device by the
+     * Bluetooth core, see bt.h */
+    bool bluetooth_auto_connect;
+    int bluetooth_codec;         /* enum bt_codec */
+#endif
 };
 
 /* global settings */

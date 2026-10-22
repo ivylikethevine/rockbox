@@ -75,6 +75,9 @@
 #include "iap-usb.h"
 
 #include "voice_thread.h"
+#ifdef HAVE_BLUETOOTH
+#include "bluetooth/bt.h"
+#endif
 
 #if defined(DX50) || defined(DX90)
 #include "governor-ibasso.h"
@@ -2476,6 +2479,18 @@ const struct settings_list settings[] = {
                   "Semitone pitch change", NULL),
     OFFON_SETTING(0, pitch_mode_timestretch, LANG_TIMESTRETCH, false,
                   "Timestretch mode", NULL),
+#endif
+
+#ifdef HAVE_BLUETOOTH
+    OFFON_SETTING(F_CB_ON_SELECT_ONLY|F_CB_ONLY_IF_CHANGED, bluetooth,
+                  LANG_BLUETOOTH, false, "bluetooth", bt_set_enabled),
+    BOOL_SETTING(0, bluetooth_auto_connect, LANG_BLUETOOTH_AUTO_CONNECT, true,
+                 "bluetooth auto connect", off_on,
+                 LANG_SET_BOOL_YES, LANG_SET_BOOL_NO, NULL),
+    CHOICE_SETTING(0, bluetooth_codec, LANG_BLUETOOTH_CODEC, 0,
+                   "bluetooth codec", "sbc high,sbc standard", NULL, 2,
+                   ID2P(LANG_BLUETOOTH_CODEC_SBC_HIGH),
+                   ID2P(LANG_BLUETOOTH_CODEC_SBC_STANDARD)),
 #endif
 
 #ifdef USB_ENABLE_HID

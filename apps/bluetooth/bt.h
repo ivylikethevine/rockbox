@@ -57,6 +57,9 @@ enum bt_pair_state {
 bool bt_enable(void);
 void bt_disable(void);
 bool bt_is_enabled(void);
+/* The Bluetooth setting: on the way up shows progress, and if the stack
+ * fails to start says so and turns the setting back off */
+void bt_set_enabled(bool on);
 
 /* Paired devices, copied out by index */
 int bt_paired_count(void);
@@ -83,6 +86,21 @@ enum bt_conn_state bt_conn_state(const uint8_t *addr);
 bool bt_forget(const uint8_t *addr);
 /* Name the device; an empty name goes back to its own */
 bool bt_rename(const uint8_t *addr, const char *name);
+
+/* Per device options, kept with the device. A device follows the
+ * global setting until set for it. */
+enum bt_option {
+    BT_OPT_AUTO_CONNECT,    /* bool: connect when Bluetooth comes up */
+    BT_OPT_CODEC,           /* enum bt_codec, used from the next connection */
+};
+
+enum bt_codec {
+    BT_CODEC_SBC_HIGH,      /* bitpool up to 53, ~328 kbps */
+    BT_CODEC_SBC_STANDARD,  /* bitpool up to 35, ~229 kbps */
+};
+
+int bt_get_option(const uint8_t *addr, enum bt_option opt);
+bool bt_set_option(const uint8_t *addr, enum bt_option opt, int val);
 
 /* Debug menu */
 bool bt_heap_info(void);

@@ -46,6 +46,9 @@
 #endif
 #include "audio.h"
 #include "settings.h"
+#ifdef HAVE_BLUETOOTH
+#include "bluetooth/bt.h"
+#endif
 #include "backlight.h"
 #include "status.h"
 #include "debug_menu.h"
@@ -238,6 +241,11 @@ int main(void)
         }
     }
 #endif /* #ifdef AUTOROCK */
+
+#ifdef HAVE_BLUETOOTH
+    if (global_settings.bluetooth)
+        bt_set_enabled(true);
+#endif
 
     global_status.last_volume_change = 0;
     validate_start_directory_init();

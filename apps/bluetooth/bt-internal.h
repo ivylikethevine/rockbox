@@ -42,5 +42,7 @@ void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr);
 /* The connected A2DP sink, NULL if there is none */
 const uint8_t *bt_core_peer(void);
+/* SBC bitpool ceiling for the A2DP sink, from its codec option */
+int bt_core_max_bitpool(void);
 
 #endif /* _BT_INTERNAL_H_ */

@@ -74,10 +74,9 @@ static int bt_not_ready(void)
 /***********************************/
 /*    OPTIONS                      */
 
-MENUITEM_FUNCTION(bt_auto_connect_item, 0, ID2P(LANG_BLUETOOTH_AUTO_CONNECT),
-                  bt_not_ready, NULL, Icon_Menu_setting);
-MENUITEM_FUNCTION(bt_codec_item, 0, ID2P(LANG_BLUETOOTH_CODEC),
-                  bt_not_ready, NULL, Icon_Menu_setting);
+MENUITEM_SETTING(bt_auto_connect_item,
+                 &global_settings.bluetooth_auto_connect, NULL);
+MENUITEM_SETTING(bt_codec_item, &global_settings.bluetooth_codec, NULL);
 
 MAKE_MENU(bt_options_menu, ID2P(LANG_BLUETOOTH_OPTIONS), NULL, Icon_Submenu,
           &bt_auto_connect_item, &bt_codec_item);
@@ -189,8 +188,7 @@ static int bt_devices_screen(void)
 /***********************************/
 /*    BLUETOOTH SETTINGS MENU      */
 
-MENUITEM_FUNCTION(bt_enable_item, 0, ID2P(LANG_BLUETOOTH),
-                  bt_not_ready, NULL, Icon_Menu_setting);
+MENUITEM_SETTING(bt_enable_item, &global_settings.bluetooth, NULL);
 MENUITEM_FUNCTION(bt_devices_item, 0, ID2P(LANG_BLUETOOTH_DEVICES),
                   bt_devices_screen, NULL, Icon_Submenu);
 

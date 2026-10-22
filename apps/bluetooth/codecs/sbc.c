@@ -278,6 +278,11 @@ static void a2dp_sbc_encoder_update(int16_t freq, esp_a2d_mcc_t *pref_mcc, bool*
     max_bitpool = spec_bitpool;
   }
 
+  /* The quality chosen for this sink in its Codec option */
+  if (max_bitpool > bt_core_max_bitpool()) {
+    max_bitpool = bt_core_max_bitpool();
+  }
+
   pref_mcc->losc = A2D_SBC_INFO_LEN;
   pref_mcc->media_type = A2D_MEDIA_TYPE_AUDIO;
   pref_mcc->codec_type = ESP_A2D_MCT_SBC;

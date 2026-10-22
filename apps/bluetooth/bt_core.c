@@ -27,6 +27,7 @@
 
 /*#define LOGF_ENABLE*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "bt.h"
 #include "bt-internal.h"
@@ -42,10 +43,19 @@
 #include "rbpaths.h"
 #include "string-extra.h"
 #include "file.h"
+#include "lang.h"
+#include "settings.h"
+#include "splash.h"
 
 /* Keys in a device's section of the bonding config */
 #define BT_KEY_NAME     "RbName"    /* the name it gives itself */
 #define BT_KEY_ALIAS    "RbAlias"   /* the name the user gave it */
+#define BT_KEY_AUTO     "RbAutoConnect"
+#define BT_KEY_CODEC    "RbCodec"
+
+/* Highest SBC bitpool per enum bt_codec, the A2DP spec's high and
+ * middle quality for joint stereo at 44.1 kHz */
+static const uint8_t codec_max_bitpool[] = { 53, 35 };
 
 /* Discovery runs in rounds of this many 1.28 s units */
 #define BT_INQ_LEN      5
@@ -63,6 +73,10 @@ static enum bt_conn_state peer_state = BT_CONN_DISCONNECTED;
 /* Connect to this one once the current link is down */
 static uint8_t pending[BT_ADDR_LEN];
 static bool pending_valid;
+
+/* Connecting to the devices set to connect by themselves, in turn,
+ * until one answers or the user picks a device */
+static int autoconnect_next = -1;
 
 static uint8_t pair_addr[BT_ADDR_LEN];
 static char pair_name[BT_NAME_LEN];
@@ -341,6 +355,44 @@ static bool a2d_connect(const uint8_t *addr)
     return true;
 }
 
+/* Try the next device set to connect by itself, if any is left */
+static void autoconnect(void)
+{
+    while (autoconnect_next >= 0 && autoconnect_next < paired_count)
+    {
+        const uint8_t *addr = paired[autoconnect_next++].addr;
+        if (bt_get_option(addr, BT_OPT_AUTO_CONNECT) && a2d_connect(addr))
+            return;
+    }
+    autoconnect_next = -1;
+}
+
+/* Devices set to connect by themselves may also connect to us, e.g.
+ * headphones switched on after Bluetooth came up */
+static void update_scan_mode(void)
+{
+    esp_bt_connection_mode_t mode = ESP_BT_NON_CONNECTABLE;
+
+    for (int i = 0; i < paired_count; i++)
+    {
+        if (bt_get_option(paired[i].addr, BT_OPT_AUTO_CONNECT))
+        {
+            mode = ESP_BT_CONNECTABLE;
+            break;
+        }
+    }
+
+    esp_bt_gap_set_scan_mode(mode, ESP_BT_NON_DISCOVERABLE);
+}
+
+int bt_core_max_bitpool(void)
+{
+    int codec = bt_get_option(peer, BT_OPT_CODEC);
+    if (codec < 0 || codec >= (int)ARRAYLEN(codec_max_bitpool))
+        codec = BT_CODEC_SBC_HIGH;
+    return codec_max_bitpool[codec];
+}
+
 void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr)
 {
@@ -354,6 +406,7 @@ void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
             break;
         case ESP_A2D_CONNECTION_STATE_CONNECTED:
             peer_state = BT_CONN_CONNECTED;
+            autoconnect_next = -1;
             /* Keep its own name current */
             esp_bt_gap_read_remote_name(addr_arg(addr));
             break;
@@ -370,6 +423,8 @@ void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                 pending_valid = false;
                 a2d_connect(pending);
             }
+            else
+                autoconnect();
             break;
         default:
             break;
@@ -459,8 +514,7 @@ static bool stack_up(void)
         !bt_a2d_register_endpoint())
         return false;
 
-    return esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE,
-                                    ESP_BT_NON_DISCOVERABLE) == ESP_OK;
+    return true;
 }
 
 bool bt_enable(void)
@@ -478,8 +532,31 @@ bool bt_enable(void)
 
     found_count = 0;
     load_paired();
+    update_scan_mode();
+    autoconnect_next = 0;
+    autoconnect();
     bt_changed();
     return true;
+}
+
+void bt_set_enabled(bool on)
+{
+    if (!on)
+    {
+        bt_disable();
+        return;
+    }
+
+    if (bt_is_enabled())
+        return;
+
+    splash(0, ID2P(LANG_BLUETOOTH_ENABLING));
+    if (!bt_enable())
+    {
+        global_settings.bluetooth = false;
+        settings_save();
+        splash(HZ*2, ID2P(LANG_BLUETOOTH_ENABLE_FAILED));
+    }
 }
 
 void bt_disable(void)
@@ -489,6 +566,7 @@ void bt_disable(void)
 
     bt_discovery_stop();
     pending_valid = false;
+    autoconnect_next = -1;
     stack_down();
 
     /* No disconnect event comes after the stack is gone */
@@ -583,6 +661,9 @@ bool bt_connect(const uint8_t *addr)
     if (!bt_is_enabled())
         return false;
 
+    /* The user's choice wins */
+    autoconnect_next = -1;
+
     if (peer_state == BT_CONN_DISCONNECTED)
         return a2d_connect(addr);
 
@@ -599,6 +680,7 @@ bool bt_connect(const uint8_t *addr)
 
 bool bt_disconnect(const uint8_t *addr)
 {
+    autoconnect_next = -1;
     if (pending_valid && addr_eq(pending, addr))
         pending_valid = false;
 
@@ -635,5 +717,40 @@ bool bt_rename(const uint8_t *addr, const char *name)
     set_name_prop(addr, BT_KEY_ALIAS, name);
     load_paired();
     bt_changed();
+    return true;
+}
+
+static const char *option_key(enum bt_option opt)
+{
+    return opt == BT_OPT_AUTO_CONNECT ? BT_KEY_AUTO : BT_KEY_CODEC;
+}
+
+static int option_default(enum bt_option opt)
+{
+    if (opt == BT_OPT_AUTO_CONNECT)
+        return global_settings.bluetooth_auto_connect;
+    return global_settings.bluetooth_codec;
+}
+
+int bt_get_option(const uint8_t *addr, enum bt_option opt)
+{
+    char buf[8];
+
+    if (bt_is_enabled() && get_prop(addr, option_key(opt), buf, sizeof(buf)))
+        return atoi(buf);
+    return option_default(opt);
+}
+
+bool bt_set_option(const uint8_t *addr, enum bt_option opt, int val)
+{
+    char buf[8];
+
+    if (!bt_is_enabled())
+        return false;
+
+    snprintf(buf, sizeof(buf), "%d", val);
+    set_prop(addr, option_key(opt), buf);
+    if (opt == BT_OPT_AUTO_CONNECT)
+        update_scan_mode();
     return true;
 }
