@@ -28,7 +28,7 @@
  *       Forget                 "Forget X?"
  *       Change Name            keyboard
  *       Options                as below, for this device only
- *   Options                    defaults for the devices
+ *   Device Defaults            options for devices not set otherwise
  *     Automatically Connect
  *     Codec
  */
@@ -379,9 +379,9 @@ MENUITEM_SETTING(bt_auto_connect_item,
                  &global_settings.bluetooth_auto_connect, NULL);
 MENUITEM_SETTING(bt_codec_item, &global_settings.bluetooth_codec, NULL);
 
-MAKE_MENU(bt_options_menu, ID2P(LANG_BLUETOOTH_OPTIONS), NULL, Icon_Submenu,
+MAKE_MENU(bt_defaults_menu, ID2P(LANG_BLUETOOTH_DEFAULTS), NULL, Icon_Submenu,
           &bt_auto_connect_item, &bt_codec_item);
 
 MAKE_MENU(bluetooth_settings_menu, ID2P(LANG_BLUETOOTH_SETTINGS), NULL,
           Icon_Bluetooth,
-          &bt_enable_item, &bt_devices_item, &bt_options_menu);
+          &bt_enable_item, &bt_devices_item, &bt_defaults_menu);

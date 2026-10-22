@@ -17690,3 +17690,20 @@
     bluetooth: "Connecting"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_BLUETOOTH_DEFAULTS
+  desc: in bluetooth settings menu, options used by devices not set otherwise
+  user: core
+  <source>
+    *: none
+    bluetooth: "Device Defaults"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Device Defaults"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Device Defaults"
+  </voice>
+</phrase>

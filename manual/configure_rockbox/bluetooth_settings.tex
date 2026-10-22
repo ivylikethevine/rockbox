@@ -43,13 +43,15 @@ Selecting a paired device opens a menu titled with its name:
     in the \dap{}'s lists. Clearing the name brings back the device's own
     name.
   \item[Options.] Sets the options below for this device only. Until you
-    set an option for a device, it follows the global option in
-    \setting{Bluetooth Settings $\rightarrow$ Options}.
+    set an option for a device, it follows
+    \setting{Bluetooth Settings $\rightarrow$ Device Defaults}.
 \end{description}
 
-\section{\label{ref:BluetoothOptions}Options}
-These options apply to every paired device for which they were not set in
-the device's own \setting{Options}.
+\section{\label{ref:BluetoothOptions}Device Defaults}
+Each device has its own \setting{Options}, set from its menu in
+\setting{Devices}. The options here are what a device uses until they are
+set in its own \setting{Options}, so they also apply to newly paired
+devices.
 
 \begin{description}
   \item[Automatically Connect.] If \setting{Yes}, the \dap{} tries to
@@ -66,7 +68,7 @@ the device's own \setting{Options}.
     change takes effect the next time the device connects.
 \end{description}
 
-\note{Whether Bluetooth is on, and the global \setting{Options}, are kept
+\note{Whether Bluetooth is on, and the \setting{Device Defaults}, are kept
   with the other settings in \fname{/.rockbox/config.cfg}. The pairings and
   everything set for each device are kept in
   \fname{/.rockbox/bt\_config.conf}, one section per device. Device
