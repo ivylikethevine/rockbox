@@ -442,6 +442,10 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 sink_active = true;
                 pcm_switch_sink(PCM_SINK_BLUETOOTH);
                 sound_set_balance(global_settings.balance);
+#ifdef HAVE_HEADPHONE_DETECTION
+                /* resumes what losing it paused, as plugging headphones in */
+                queue_broadcast(SYS_BLUETOOTH_SINK_READY, 0);
+#endif
             } else if (pref_wait_suspend && param->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_SUSPEND) {
                 pref_wait_suspend = false;
                 pref_next();

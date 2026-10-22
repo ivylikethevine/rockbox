@@ -742,6 +742,11 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
         case SYS_BLUETOOTH_SINK_LOST:
             hp_unplug_change(false);
             return SYS_BLUETOOTH_SINK_LOST;
+
+        /* and a Bluetooth output to play on again, as plugging them in */
+        case SYS_BLUETOOTH_SINK_READY:
+            hp_unplug_change(true);
+            return SYS_BLUETOOTH_SINK_READY;
 #endif
 #endif
 #ifdef HAVE_LINEOUT_DETECTION
