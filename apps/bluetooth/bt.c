@@ -392,10 +392,15 @@ static void check_stream_bitpool(void) {
 /* Whether audio goes to the A2DP sink */
 static bool sink_active;
 
+/* The A2DP link and the encoder for it */
+static bool link_open;
+static uint16_t link_mtu;
+static bool codec_ready;
+
 /* The Bluetooth output went away and audio goes back to the jack. With
  * headphones there playback carries on; without, it goes as if they had
  * just been unplugged ("Pause on Headphone Unplug"). */
-void bt_sink_lost(void) {
+static void sink_lost(void) {
     if (!sink_active)
         return;
     sink_active = false;
@@ -406,6 +411,43 @@ void bt_sink_lost(void) {
     if (!headphones_inserted())
         queue_broadcast(SYS_BLUETOOTH_SINK_LOST, 0);
 #endif
+}
+
+/* The A2DP link is gone or going: audio goes back to the jack and the
+ * encoder is set up again on the next connection */
+void bt_sink_lost(void) {
+    sink_lost();
+
+    link_open = false;
+    codec_ready = false;
+    if (current_codec != NULL) {
+        bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
+        current_codec->deinit();
+        current_codec = NULL;
+        bt_has_avrcp_abs_vol = false;
+        bt_volume = 127;
+    }
+}
+
+/* The encoder is set up once both the link is open and a codec has been
+ * picked from the sink's caps. Which comes first depends on who
+ * connected: when the sink connects to us its caps are fetched after the
+ * stream is open. */
+static void codec_setup(void) {
+    if (codec_ready || !link_open || current_codec == NULL)
+        return;
+    codec_ready = true;
+
+    esp_a2d_mcc_t pref_mcc;
+    struct a2dp_peer_info peer_info = {
+        .peer_mtu = link_mtu,
+        .peer_caps = &peer_caps,
+        .conn_hdl = conn_hdl,
+        .is_edr = btc_av_is_peer_edr(),
+    };
+    current_codec->init(&bt_pcm_sink.caps, &peer_info, &pref_mcc);
+    /* nothing is streaming yet, nothing to hold */
+    pref_request(&pref_mcc, false);
 }
 
 void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
@@ -422,18 +464,17 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 src_rdy_sent = false;
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                 bitpool_checked = false;
+                conn_hdl = param->conn_stat.conn_hdl;
+                link_mtu = param->conn_stat.audio_mtu;
+                /* Not set up here: Bluedroid reports the connection before
+                 * it counts it as open, and setting up asks about the
+                 * link. One of the caps events below follows. */
+                link_open = true;
                 check_stream_bitpool();
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
                 stream_cfg_valid = false;
                 pref_reset();
                 bt_sink_lost();
-                if (current_codec != NULL) {
-                    bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
-                    current_codec->deinit();
-                    current_codec = NULL;
-                    bt_has_avrcp_abs_vol = false;
-                    bt_volume = 127;
-                }
             }
             return;
         case ESP_A2D_MEDIA_CTRL_ACK_EVT:
@@ -465,22 +506,16 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 semaphore_release(&sink_control_sem);
             }
             return;
-        case ESP_A2D_REPORT_SNK_CODEC_CAPS_EVT: {
-            esp_a2d_mcc_t pref_mcc;
-            struct a2dp_peer_info peer_info = {
-                .peer_mtu = param->a2d_report_snk_codec_caps_stat.mtu,
-                .peer_caps = &peer_caps,
-                .conn_hdl = param->a2d_report_snk_codec_caps_stat.conn_hdl,
-                .is_edr = btc_av_is_peer_edr(),
-            };
-            conn_hdl = param->a2d_report_snk_codec_caps_stat.conn_hdl;
-            current_codec->init(&bt_pcm_sink.caps, &peer_info, &pref_mcc);
-            /* the stream isn't open yet, nothing to hold */
-            pref_request(&pref_mcc, false);
+        case ESP_A2D_REPORT_SNK_CODEC_CAPS_EVT:
+            /* Sent once the connection is open if the caps were fetched
+             * before, the all caps event comes later otherwise */
+            codec_setup();
             break;
-        }
         case ESP_A2D_REPORT_SNK_ALL_CODEC_CAPS_EVT: {
             logf("a2d %d %d", event, param->a2d_report_snk_all_codec_caps_stat.sep_num);
+            /* the encoder is running on what was picked already */
+            if (codec_ready)
+                break;
             bool done = false;
             for (int codec_idx = 0; codec_idx < NUM_CODECS; codec_idx++) {
                 current_codec = codec_list[codec_idx];
@@ -499,6 +534,7 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             if (!done) { 
                 panicf("Unable to initialize suitable codec");
             }
+            codec_setup();
             break;
         }
         case ESP_A2D_AUDIO_CFG_EVT:
