@@ -17606,6 +17606,23 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_VOLUME_LIMIT_SINK
+  desc: splash when the volume limit can't be set while Bluetooth plays
+  user: core
+  <source>
+    *: none
+    bluetooth: "Not while playing through Bluetooth"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Not while playing through Bluetooth"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Not while playing through Bluetooth"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_BLUETOOTH_SEARCHING
   desc: in bluetooth pairing list while looking for devices
   user: core

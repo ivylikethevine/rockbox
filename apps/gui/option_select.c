@@ -498,11 +498,13 @@ bool option_screen(const struct settings_list *setting,
     int var_type = setting->flags&F_T_MASK;
     void (*function)(int) = NULL;
     const char *title = NULL;
+    /* A sink's own volume isn't the setting's variable, that is the
+     * built-in output's volume: work on a copy, set live and not stored */
+    bool sink_volume = false;
 #ifdef WANT_SINK_VOLUME_OVERRIDE
     if (HASFLAG(setting, F_T_SOUND) && setting->sound_setting->setting == SOUND_VOLUME && pcm_current_sink_volume() != NULL)
     {
-        use_temp_var = true;
-        cb_on_select_only = true;
+        sink_volume = true;
         variable = &temp_var;
         temp_var = oldvalue = pcm_current_sink_volume()->get_volume();
     }
@@ -588,7 +590,7 @@ bool option_screen(const struct settings_list *setting,
         else if (action == ACTION_STD_OK)
         {
             /* setting accepted, store now if it used a temp var */
-            if (use_temp_var)
+            if (use_temp_var && !sink_volume)
             {
                 if (var_type == F_T_INT || var_type == F_T_UINT)
                     *(int*)setting->setting = *variable;
