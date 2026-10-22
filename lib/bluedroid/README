@@ -69,6 +69,7 @@ src/stack/avdt/avdt_ccb.c: changed UINT32 cast to uintptr_t for 64-bit platforms
 src/btc/profile/std/a2dp/bta_av_co.c: added bta_av_co_audio_clear_remote_bitpool_pref
 src/btc/profile/std/a2dp/btc_av.c: clear the remote bitpool preference after a successful preferred config reconfig
 export/esp_avrc_api.h, src/btc/profile/std/avrc/btc_avrc.c: pass on interim notification responses, flagged is_interim
+src/hci/hci_layer.c: hci_shut_down() stops the HCI host thread before freeing its queues and event
 
 Added files:
 osi/include/sdkconfig.h: handwritten configuration file based on esp-idf/components/bt/host/bluedroid/Kconfig.in

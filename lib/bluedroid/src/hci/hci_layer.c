@@ -144,10 +144,23 @@ void hci_shut_down(void)
         hal->close();
         packet_fragmenter->cleanup();
     }
-    hci_layer_deinit_env();
+
+    /* Rockbox: stop the host thread before freeing what it works on. Work
+     * still queued or running on it, or posted meanwhile from another
+     * thread, would otherwise run hci_downstream_data_handler() on freed
+     * queues and a freed event. No more posts, no command timeout to post
+     * one, then the thread goes, then its data. */
+    struct osi_event *downstream_data_ready = hci_host_env.downstream_data_ready;
+    hci_host_env.downstream_data_ready = NULL;
+    if (hci_host_env.cmd_waiting_q.command_response_timer) {
+        osi_alarm_cancel(hci_host_env.cmd_waiting_q.command_response_timer);
+    }
 
     osi_thread_free(hci_host_thread);
     hci_host_thread = NULL;
+
+    hci_host_env.downstream_data_ready = downstream_data_ready;
+    hci_layer_deinit_env();
 }
 
 bool hci_downstream_data_post(uint32_t timeout)
