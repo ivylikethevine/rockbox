@@ -1,0 +1,80 @@
+A2DP test sink
+==============
+
+a2dp_test_sink.py makes a Linux PC with BlueZ look like a Bluetooth
+headset with whatever capabilities you give it, and reports what an A2DP
+source (Rockbox) does with them:
+
+- the configuration the source picks: codec, sample rate, channel mode,
+  SBC bitpool range
+- per second while streaming: kbit/s, packets/s, frames per packet, the
+  SBC bitpool of the frames sent (last, lowest, highest: shows the dynamic
+  bitpool at work), the longest gap between packets, lost packets (RTP
+  sequence numbers)
+- the AVRCP absolute volume the source sets, and on "v <0-127>" changes
+  the volume as the headset's own buttons would
+
+It can save each stream (--record) and prints the ffmpeg command that
+turns it into a WAV file. SBC, aptX and aptX HD can be listened to that
+way; LDAC streams are measured but have no free decoder.
+
+Needs python3 with dbus-python and PyGObject (python3-dbus, python3-gi),
+BlueZ 5.x, ffmpeg for listening.
+
+
+Running it
+----------
+
+PipeWire's WirePlumber registers an A2DP sink of its own, and the source
+may pick that one instead. run_test_sink.sh stops WirePlumber, runs the
+test sink with the arguments given and starts WirePlumber again when it
+quits, by "q", Ctrl-C or otherwise. The PC's desktop audio is off
+meanwhile.
+
+    ./run_test_sink.sh --agent --discoverable
+
+a2dp_test_sink.py can also be run by itself; it refuses to while
+WirePlumber runs, unless given --force.
+
+--agent accepts pairing without asking, --discoverable lets the player
+find the PC. On the player, Bluetooth > Devices > [Pair New Device] and
+pick the PC by its Bluetooth name. Once paired, connect from the player's
+device menu as with a headset; the PC stays paired, so later runs only
+need the script.
+
+Type "v 64" and Enter to set the volume from the sink side, "q" to quit.
+
+
+Examples
+--------
+
+SBC only, as most headsets:
+
+    ./run_test_sink.sh
+
+A headset with a low bitpool ceiling, only 48 kHz:
+
+    ./run_test_sink.sh --rates 48 --sbc-bitpool 2-35
+
+Several codecs, to see which one the player's Codec option picks:
+
+    ./run_test_sink.sh --codecs sbc,aptx,aptxhd,ldac
+
+Record and listen:
+
+    ./run_test_sink.sh --codecs aptx --record /tmp/rb
+    ffmpeg -f aptx -sample_rate 44100 -i /tmp/rb-<time>.aptx out.wav
+
+./a2dp_test_sink.py --help lists all options.
+
+
+Notes
+-----
+
+The PC's radio is far better than a cheap headset's, so a test sink shows
+the protocol and the encoder, not how the player copes with a weak link.
+
+Vendor codec endpoints are registered with Codec 0xFF, the vendor (company
+and codec ID) in the Vendor property and in front of the capabilities.
+aptX is sent without an RTP header, as A2DP specifies; aptX HD and LDAC
+with one.
