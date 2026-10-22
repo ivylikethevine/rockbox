@@ -36,6 +36,7 @@
 #include "esp_bt_defs.h"
 #include "esp_bt_main.h"
 #include "esp_gap_bt_api.h"
+#include "osi/alarm.h"
 #include "logf.h"
 #include "misc.h"
 #include "rbpaths.h"
@@ -81,6 +82,9 @@ static bool pending_valid;
 /* Connecting to the devices set to connect by themselves, in turn,
  * until one answers or the user picks a device */
 static int autoconnect_next = -1;
+/* Passes over the devices to connect by themselves, see autoconnect() */
+static int autoconnect_pass = -1;
+static osi_alarm_t *autoconnect_alarm;
 
 static uint8_t pair_addr[BT_ADDR_LEN];
 static char pair_name[BT_NAME_LEN];
@@ -359,7 +363,22 @@ static bool a2d_connect(const uint8_t *addr)
     return true;
 }
 
-/* Try the next device set to connect by itself, if any is left */
+/* Seconds before each further pass over the devices to connect by
+ * themselves. A device may not answer at first: one that lost us without
+ * a disconnect, as when Bluetooth was turned off and on, thinks it is
+ * still connected until its link supervision timeout, often 5 to 20 s. */
+static const unsigned char autoconnect_retry_s[] = { 2, 4, 8, 15, 30 };
+
+static void autoconnect_stop(void)
+{
+    autoconnect_next = -1;
+    autoconnect_pass = -1;
+    if (autoconnect_alarm)
+        osi_alarm_cancel(autoconnect_alarm);
+}
+
+/* Try the next device set to connect by itself, if any is left; after
+ * the last one, a new pass a while later */
 static void autoconnect(void)
 {
     while (autoconnect_next >= 0 && autoconnect_next < paired_count)
@@ -369,6 +388,35 @@ static void autoconnect(void)
             return;
     }
     autoconnect_next = -1;
+
+    if (autoconnect_pass < 0 ||
+        autoconnect_pass >= (int)ARRAYLEN(autoconnect_retry_s) ||
+        !autoconnect_alarm)
+    {
+        autoconnect_pass = -1;
+        return;
+    }
+    logf("bt: autoconnect again in %ds", autoconnect_retry_s[autoconnect_pass]);
+    osi_alarm_set(autoconnect_alarm,
+                  autoconnect_retry_s[autoconnect_pass++] * 1000);
+}
+
+/* On Bluedroid's alarm thread */
+static void autoconnect_retry(void *arg)
+{
+    (void)arg;
+    if (autoconnect_pass < 0 || !bt_is_enabled() ||
+        peer_state != BT_CONN_DISCONNECTED || pending_valid)
+        return;
+    autoconnect_next = 0;
+    autoconnect();
+}
+
+static void autoconnect_start(void)
+{
+    autoconnect_pass = 0;
+    autoconnect_next = 0;
+    autoconnect();
 }
 
 /* Devices set to connect by themselves may also connect to us, e.g.
@@ -416,7 +464,7 @@ void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
             break;
         case ESP_A2D_CONNECTION_STATE_CONNECTED:
             peer_state = BT_CONN_CONNECTED;
-            autoconnect_next = -1;
+            autoconnect_stop();
             /* Keep its own name current */
             esp_bt_gap_read_remote_name(addr_arg(addr));
             break;
@@ -579,8 +627,9 @@ bool bt_enable(void)
     found_count = 0;
     load_paired();
     update_scan_mode();
-    autoconnect_next = 0;
-    autoconnect();
+    autoconnect_alarm = osi_alarm_new("bt_autoconnect", autoconnect_retry,
+                                      NULL, 0);
+    autoconnect_start();
     bt_changed();
     return true;
 }
@@ -612,7 +661,9 @@ void bt_disable(void)
 
     bt_discovery_stop();
     pending_valid = false;
-    autoconnect_next = -1;
+    autoconnect_stop();
+    /* the stack frees it with its other alarms */
+    autoconnect_alarm = NULL;
 
     /* No disconnect event comes once the stack is gone */
     bt_sink_lost();
@@ -707,7 +758,7 @@ bool bt_connect(const uint8_t *addr)
         return false;
 
     /* The user's choice wins */
-    autoconnect_next = -1;
+    autoconnect_stop();
 
     if (peer_state == BT_CONN_DISCONNECTED)
         return a2d_connect(addr);
@@ -725,7 +776,7 @@ bool bt_connect(const uint8_t *addr)
 
 bool bt_disconnect(const uint8_t *addr)
 {
-    autoconnect_next = -1;
+    autoconnect_stop();
     if (pending_valid && addr_eq(pending, addr))
         pending_valid = false;
 
