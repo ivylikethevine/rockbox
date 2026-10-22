@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "string-extra.h"
 
 static struct a2dp_codec *current_codec = NULL;
 
@@ -60,6 +61,16 @@ static const struct codec_choice {
 /* What the sink was asked for and what it got */
 static const struct codec_choice *codec_wanted;
 static const struct codec_choice *codec_used;
+
+/* The A2DP link and the encoder for it */
+static bool link_open;
+static uint16_t link_mtu;
+static bool codec_ready;
+/* The sample rate the encoder is set up for */
+static unsigned long cur_sampr;
+/* The stream config as last reported */
+static esp_a2d_mcc_t stream_cfg;
+static bool stream_cfg_valid;
 
 static const struct codec_choice *codec_choice(enum bt_codec option)
 {
@@ -90,7 +101,7 @@ int bt_heap_info_action_callback(int action, struct gui_synclist *lists)
     }
 }
 
-#define BT_INFO_FIXED_ITEMS 5
+#define BT_INFO_FIXED_ITEMS 2
 
 /* Short lines, the most telling first: they have to fit a narrow screen */
 static const char *bt_stats_line(int line, char *buf, size_t len)
@@ -146,8 +157,63 @@ static const char *bt_stats_line(int line, char *buf, size_t len)
 
 #define BT_INFO_STATS_ITEMS 38
 
+static const char *codec_name(tA2D_CODEC type)
+{
+    for (size_t i = 0; i < ARRAYLEN(codec_choices); i++)
+        if (codec_choices[i].codec->codec_id == type)
+            return codec_choices[i].codec == &a2dp_codec_sbc ?
+                "SBC" : codec_choices[i].name;
+    return "other";
+}
+
+/* The codec in use first, what the device was asked for if it differs */
+static const char *bt_codec_line(int line, char *buf, size_t len)
+{
+    switch (line) {
+    case 0:
+        if (codec_used == NULL)
+            return "codec none";
+        if (codec_used == codec_wanted || codec_wanted == NULL)
+            snprintf(buf, len, "codec %s", codec_used->name);
+        else
+            snprintf(buf, len, "codec %s, want %s",
+                     codec_used->name, codec_wanted->name);
+        return buf;
+    case 1:
+        if (current_codec == NULL || current_codec->debug_info == NULL)
+            return "enc -";
+        strlcpy(buf, "enc ", len);
+        current_codec->debug_info(buf + 4, len - 4);
+        return buf;
+    case 2:
+        if (!stream_cfg_valid)
+            return "stream -";
+        if (stream_cfg.codec_type == ESP_A2D_MCT_SBC)
+            snprintf(buf, len, "stream SBC bp %u-%u",
+                     stream_cfg.cie.sbc_info.min_bitpool,
+                     stream_cfg.cie.sbc_info.max_bitpool);
+        else
+            snprintf(buf, len, "stream %s", codec_name(
+                     A2D_GetCodecType((const uint8_t *)&stream_cfg)));
+        return buf;
+    case 3:
+        if (!codec_ready)
+            return "sampr -";
+        snprintf(buf, len, "sampr %lu", cur_sampr);
+        return buf;
+    default:
+        return NULL;
+    }
+}
+
+#define BT_INFO_CODEC_ITEMS 4
+
 const char * bt_heap_info_getname(int selected_item, void * data, char * buffer, size_t buffer_len)
 {
+    if (selected_item < BT_INFO_CODEC_ITEMS)
+        return bt_codec_line(selected_item, buffer, buffer_len);
+    selected_item -= BT_INFO_CODEC_ITEMS;
+
     if (selected_item < BT_INFO_STATS_ITEMS) {
         const char *s = bt_stats_line(selected_item, buffer, buffer_len);
         return s ? s : "Unknown item!!";
@@ -170,29 +236,6 @@ const char * bt_heap_info_getname(int selected_item, void * data, char * buffer,
                 return "MAC unknown";
             }
         }
-        case 2:
-            if (current_codec == &a2dp_codec_ldac) {
-                return "current codec: LDAC";
-            } else if (current_codec == &a2dp_codec_aptx_hd) {
-                return "current codec: aptX HD";
-            } else if (current_codec == &a2dp_codec_aptx) {
-                return "current codec: aptX";
-            } else if (current_codec == &a2dp_codec_sbc) {
-                return "current codec: SBC";
-            } else {
-                return "current codec: unknown";
-            }
-        case 3:
-            if (current_codec != NULL && current_codec->debug_info != NULL) {
-                strcpy(buffer, "codec info: ");
-                current_codec->debug_info(buffer + 12, buffer_len - 12);
-                return buffer;
-            } else {
-                return "codec info: N/A";
-            }
-        case 4:
-            snprintf(buffer, buffer_len, "real sink sampr: %lu", pcm_current_sink_caps()->samprs[pcm_get_current_sink()->configured_freq]);
-            return buffer;
         default:
             return "Unknown item!!";
     }
@@ -203,7 +246,8 @@ bool bt_heap_info(void)
     struct simplelist_info info;
 
     simplelist_info_init(&info, "Bluetooth debug info:",
-                         BT_INFO_FIXED_ITEMS + BT_INFO_STATS_ITEMS, NULL);
+                         BT_INFO_CODEC_ITEMS + BT_INFO_STATS_ITEMS +
+                         BT_INFO_FIXED_ITEMS, NULL);
     info.scroll_all = false;
     info.action_callback = bt_heap_info_action_callback;
     info.get_name = bt_heap_info_getname;
@@ -310,12 +354,6 @@ bool bt_sink_resume(void) {
     return false;
 }
 
-/* The A2DP link and the encoder for it */
-static bool link_open;
-static uint16_t link_mtu;
-static bool codec_ready;
-/* The sample rate the encoder is set up for */
-static unsigned long cur_sampr;
 
 /* Our config for the codec in use at the current sample rate. For SBC
  * the bitpool is capped by the device's codec option. */
@@ -375,12 +413,9 @@ static void pref_reset(void) {
     src_rdy_sent = false;
 }
 
-/* The stream config as last reported. A sink that sets up the stream
- * itself (it connected to us) picks the codec and, for SBC, the bitpool
- * range; ask once per connection for ours instead. If the sink won't,
- * the encoder follows what it set up. */
-static esp_a2d_mcc_t stream_cfg;
-static bool stream_cfg_valid;
+/* A sink that sets up the stream itself (it connected to us) picks the
+ * codec and, for SBC, the bitpool range; ask once per connection for ours
+ * instead. If the sink won't, the encoder follows what it set up. */
 static enum {
     STREAM_CHECK,               /* not asked yet */
     STREAM_ASKED,               /* asked for ours */
