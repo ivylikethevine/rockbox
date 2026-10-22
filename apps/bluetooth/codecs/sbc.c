@@ -27,6 +27,7 @@
 
 #include "sbc_encoder.h"
 #include "osi/bt_stats.h"
+#include "bta/bta_av_api.h"
 
 #include <limits.h>
 #include <string.h>
@@ -102,6 +103,94 @@ typedef struct {
 } tA2DP_SBC_ENCODER_CB;
 
 static tA2DP_SBC_ENCODER_CB a2dp_sbc_encoder_cb;
+
+/*
+ * Rockbox: dynamic SBC bitpool
+ *
+ * The bitpool goes in every SBC frame header, so the sink follows it frame by
+ * frame and nothing has to be renegotiated. When media packets back up below
+ * us the link can't carry the rate, so the bitpool steps down fast; once the
+ * link has been clean for a while it creeps back up to the negotiated value.
+ * It only changes at a media tick: packets never span ticks, so all frames in
+ * a packet keep one length and the MTU packing stays right.
+ */
+#define DYN_BP_FLOOR            14  /* about 115 kbps at 44.1 kHz */
+#define DYN_BP_BACKLOG_HIGH     3   /* media packets, about 60 ms */
+#define DYN_BP_BACKLOG_LOW      1
+#define DYN_BP_DOWN_STEP        12
+#define DYN_BP_DOWN_TICKS       (150 / A2DP_SBC_ENCODER_INTERVAL_MS)
+#define DYN_BP_UP_STEP          2
+#define DYN_BP_UP_TICKS         (1000 / A2DP_SBC_ENCODER_INTERVAL_MS)
+
+static struct {
+  int16_t min;
+  int16_t max;                  /* 0: not set up, leave it alone */
+  uint16_t hold;
+  uint16_t clean;
+  uint32_t last_backlog;
+} dyn_bp;
+
+static void a2dp_sbc_dyn_bitpool_init(int16_t min, int16_t max) {
+  dyn_bp.min = (min > DYN_BP_FLOOR) ? min : DYN_BP_FLOOR;
+  dyn_bp.max = max;
+  if (dyn_bp.min > dyn_bp.max) {
+    dyn_bp.min = dyn_bp.max;
+  }
+  dyn_bp.hold = 0;
+  dyn_bp.clean = 0;
+  dyn_bp.last_backlog = 0;
+
+  bt_stats.a2d_bitpool = max;
+  bt_stats.a2d_bp_min = max;
+}
+
+static void a2dp_sbc_dyn_bitpool(void) {
+  SBC_ENC_PARAMS* enc = &a2dp_sbc_encoder_cb.sbc_encoder_params;
+  uint32_t backlog;
+
+  if (dyn_bp.max == 0) {
+    return;
+  }
+
+  backlog = esp_a2d_source_audio_queue_len() + bta_av_a2d_backlog;
+
+  if (dyn_bp.hold > 0) {
+    dyn_bp.hold--;
+  }
+
+  if (backlog >= DYN_BP_BACKLOG_HIGH) {
+    dyn_bp.clean = 0;
+    /* Step again only if the last step didn't get it draining */
+    if (dyn_bp.hold == 0 && backlog >= dyn_bp.last_backlog &&
+        enc->s16BitPool > dyn_bp.min) {
+      enc->s16BitPool -= DYN_BP_DOWN_STEP;
+      if (enc->s16BitPool < dyn_bp.min) {
+        enc->s16BitPool = dyn_bp.min;
+      }
+      dyn_bp.hold = DYN_BP_DOWN_TICKS;
+      dyn_bp.last_backlog = backlog;
+      bt_stats.a2d_bp_down++;
+    }
+  } else {
+    dyn_bp.last_backlog = 0;
+    if (backlog > DYN_BP_BACKLOG_LOW) {
+      dyn_bp.clean = 0;
+    } else if (++dyn_bp.clean >= DYN_BP_UP_TICKS &&
+               enc->s16BitPool < dyn_bp.max) {
+      enc->s16BitPool += DYN_BP_UP_STEP;
+      if (enc->s16BitPool > dyn_bp.max) {
+        enc->s16BitPool = dyn_bp.max;
+      }
+      dyn_bp.clean = 0;
+      bt_stats.a2d_bp_up++;
+    }
+  }
+
+  bt_stats.a2d_bitpool = enc->s16BitPool;
+  if (bt_stats.a2d_bp_min == 0 || enc->s16BitPool < bt_stats.a2d_bp_min) {
+    bt_stats.a2d_bp_min = enc->s16BitPool;
+  }
+}
 
 static void a2dp_sbc_encoder_update(int16_t freq, esp_a2d_mcc_t *pref_mcc, bool* p_restart_input,
                                     bool* p_restart_output, bool* p_config_updated);
@@ -309,12 +398,15 @@ static void a2dp_sbc_encoder_update(int16_t freq, esp_a2d_mcc_t *pref_mcc, bool*
   SBC_Encoder_Init(&a2dp_sbc_encoder_cb.sbc_encoder_params);
   a2dp_sbc_encoder_cb.tx_sbc_frames = calculate_max_frames_per_packet();
 
+  a2dp_sbc_dyn_bitpool_init(min_bitpool, p_encoder_params->s16BitPool);
+
   bt_stats.a2d_bitrate = p_encoder_params->u16BitRate;
   bt_stats.a2d_mtu = a2dp_sbc_encoder_cb.TxAaMtuSize;
 }
 
 void a2dp_sbc_encoder_cleanup(void) {
   memset(&a2dp_sbc_encoder_cb, 0, sizeof(a2dp_sbc_encoder_cb));
+  dyn_bp.max = 0;
 }
 
 void a2dp_sbc_feeding_reset(void) {
@@ -353,6 +445,8 @@ void a2dp_sbc_send_frames(void) {
   uint64_t timestamp_us = ((uint64_t) current_tick) * (1000000 / HZ);
   uint8_t nb_frame = 0;
   uint8_t nb_iterations = 0;
+
+  a2dp_sbc_dyn_bitpool();
 
   a2dp_sbc_get_num_frame_iteration(&nb_iterations, &nb_frame, timestamp_us);
   if (nb_frame == 0) {

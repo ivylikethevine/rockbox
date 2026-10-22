@@ -738,6 +738,10 @@ void BTA_AvDisconnect(BD_ADDR bd_addr);
 *******************************************************************************/
 void BTA_AvEnable_Sink(int enable);
 
+/* Rockbox: audio media packets waiting in BTA AV and L2CAP, updated on
+ * every pass of the data path. Drives the dynamic SBC bitpool. */
+extern UINT16 bta_av_a2d_backlog;
+
 /*******************************************************************************
 **
 ** Function         BTA_AvStart

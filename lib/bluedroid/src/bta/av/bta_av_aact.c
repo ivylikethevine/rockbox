@@ -2234,6 +2234,8 @@ void bta_av_reconfig (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
 ** Returns          void
 **
 *******************************************************************************/
+UINT16 bta_av_a2d_backlog;
+
 void bta_av_data_path (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
 {
     BT_HDR  *p_buf = NULL;
@@ -2310,6 +2312,10 @@ void bta_av_data_path (tBTA_AV_SCB *p_scb, tBTA_AV_DATA *p_data)
                 }
             }
         }
+    }
+
+    if (BTA_AV_CHNL_AUDIO == p_scb->chnl) {
+        bta_av_a2d_backlog = p_scb->l2c_bufs + list_length(p_scb->a2d_list);
     }
 }
 
