@@ -383,5 +383,5 @@ MAKE_MENU(bt_options_menu, ID2P(LANG_BLUETOOTH_OPTIONS), NULL, Icon_Submenu,
           &bt_auto_connect_item, &bt_codec_item);
 
 MAKE_MENU(bluetooth_settings_menu, ID2P(LANG_BLUETOOTH_SETTINGS), NULL,
-          Icon_Submenu,
+          Icon_Bluetooth,
           &bt_enable_item, &bt_devices_item, &bt_options_menu);

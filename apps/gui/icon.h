@@ -62,6 +62,7 @@ enum themable_icons {
     Icon_file_view_menu,
     Icon_EQ,
     Icon_Rockbox,
+    Icon_Bluetooth,         /* first icon iconsets may not have, see icon.c */
     Icon_Last_Themeable,
 };
 

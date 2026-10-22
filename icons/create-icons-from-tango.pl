@@ -59,7 +59,8 @@ my @iconlist = (
     "./tango-svg/network-wireless",                 # Icon_Radio_screen ###
     "./tango-svg/system-file-manager",              # Icon_file_view_menu
     "./tango-svg/utilities-system-monitor",         # Icon_EQ
-    "../docs/logo/rockbox-clef"                     # Icon_Rockbox
+    "../docs/logo/rockbox-clef",                    # Icon_Rockbox
+    "./new_icons-svg/bluetooth",                    # Icon_Bluetooth ###
 );
 my @iconlist_viewers = (
     "./tango-svg/applications-graphics",     # bmp

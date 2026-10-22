@@ -59,11 +59,32 @@ static struct iconset {
     struct bitmap bmp;
     bool loaded;
     int handle;
+    int count; /* themable icons in the strip */
 } iconsets[Iconset_Count][NB_SCREENS];
 
+/* Iconsets made before Icon_Bluetooth was added have the icons up to it.
+ * Tell them apart by the strip height; if both counts fit, pick the one
+ * that gives square icons. */
+#define ICONS_BEFORE_BLUETOOTH Icon_Bluetooth
+
+static int iconset_count(const struct bitmap *bmp)
+{
+    bool fits_new = bmp->height % Icon_Last_Themeable == 0;
+    bool fits_old = bmp->height % ICONS_BEFORE_BLUETOOTH == 0;
+
+    if (fits_old && (!fits_new ||
+                     bmp->height / ICONS_BEFORE_BLUETOOTH == bmp->width))
+        return ICONS_BEFORE_BLUETOOTH;
+    return Icon_Last_Themeable;
+}
+
+/* What an older iconset shows instead of the icons it doesn't have */
+#define ICON_MISSING_FALLBACK Icon_System_menu
+
 #define ICON_HEIGHT(screen) (!iconsets[Iconset_user][screen].loaded ?       \
-                             (*(inbuilt_iconset[screen])) : iconsets[Iconset_user][screen].bmp).height \
-                            / Icon_Last_Themeable
+        inbuilt_iconset[screen]->height / Icon_Last_Themeable :             \
+        iconsets[Iconset_user][screen].bmp.height /                         \
+            iconsets[Iconset_user][screen].count)
 
 #define ICON_WIDTH(screen)  (!iconsets[Iconset_user][screen].loaded ?       \
                              (*(inbuilt_iconset[screen])) : iconsets[Iconset_user][screen].bmp).width
@@ -125,6 +146,8 @@ void screen_put_iconxy(struct screen * display,
     else if (iconsets[Iconset_user][screen].loaded)
     {
         iconset = &iconsets[Iconset_user][screen].bmp;
+        if (icon >= iconsets[Iconset_user][screen].count)
+            icon = ICON_MISSING_FALLBACK;
     }
     else
     {
@@ -181,6 +204,7 @@ static void load_icons(const char* filename, enum Iconset iconset,
         if (ic->handle != CLB_ALOC_ERR)
         {
             ic->bmp.data = core_get_data(ic->handle);
+            ic->count = iconset_count(&ic->bmp);
             ic->loaded = true;
         }
     }
