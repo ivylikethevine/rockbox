@@ -325,9 +325,13 @@ const struct pcm_sink_caps* pcm_current_sink_caps(void)
 
 const struct pcm_sink_volume* pcm_sink_volume(enum pcm_sink_ids sink)
 {
+#ifdef WANT_SINK_VOLUME_OVERRIDE
     return sinks[sink]->volume;
+#else
+    (void)sink;
+    return NULL;
+#endif
 }
-
 
 const struct pcm_sink_volume* pcm_current_sink_volume(void)
 {
