@@ -451,10 +451,21 @@ int bt_core_max_bitpool(void)
         BT_SBC_STANDARD_BITPOOL : BT_SBC_HIGH_BITPOOL;
 }
 
-void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
+bool bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr)
 {
     logf("bt: a2dp %d", state);
+
+    /* With a link up, Bluedroid turns a connection to another device
+     * away with a DISCONNECTED for that one, e.g. an autoconnect attempt
+     * that crossed with a device connecting to us. It isn't about the
+     * link. */
+    if (peer_state == BT_CONN_CONNECTED && !addr_eq(addr, peer))
+    {
+        logf("bt: a2dp %d for another device, ignored", state);
+        return false;
+    }
+
     memcpy(peer, addr, BT_ADDR_LEN);
 
     switch (state)
@@ -489,6 +500,7 @@ void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
     }
 
     bt_changed();
+    return true;
 }
 
 const uint8_t *bt_core_peer(void)

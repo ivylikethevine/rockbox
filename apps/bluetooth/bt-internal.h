@@ -50,8 +50,9 @@ void bt_volume_connected(const uint8_t *addr);
 void bt_volume_disconnected(void);
 void bt_volume_debug(char *buf, size_t len);
 
-/* bt_core.c, A2DP connection changes passed on by bt_a2d_cb() */
-void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
+/* bt_core.c, A2DP connection changes passed on by bt_a2d_cb(). False if
+ * the change is about another device than the link's, to be ignored. */
+bool bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr);
 /* A profile reported it is down, see stack_down() */
 void bt_core_prof_down(void);

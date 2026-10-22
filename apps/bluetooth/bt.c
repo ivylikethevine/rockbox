@@ -594,8 +594,9 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     switch (event) {
         case ESP_A2D_CONNECTION_STATE_EVT:
             logf("a2d %d %d", event, param->conn_stat.state);
-            bt_core_a2d_conn_state(param->conn_stat.state,
-                                   param->conn_stat.remote_bda);
+            if (!bt_core_a2d_conn_state(param->conn_stat.state,
+                                        param->conn_stat.remote_bda))
+                return;
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
                 semaphore_init(&sink_control_sem, 1, 0);
                 queue_init(&sink_control_queue, false);
