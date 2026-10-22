@@ -53,6 +53,8 @@ void bt_volume_debug(char *buf, size_t len);
 /* bt_core.c, A2DP connection changes passed on by bt_a2d_cb() */
 void bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr);
+/* A profile reported it is down, see stack_down() */
+void bt_core_prof_down(void);
 /* The connected A2DP sink, NULL if there is none */
 const uint8_t *bt_core_peer(void);
 /* The codec the A2DP sink is asked to use, from its codec option */

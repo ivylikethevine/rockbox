@@ -304,6 +304,11 @@ static void bt_codec_task(void)
                 return;
             }
             bt_codec_tick();
+            /* taken down while the tick waited somewhere */
+            if (current_codec == NULL) {
+                thread_exit();
+                return;
+            }
             next_ms += current_codec->get_period();
             ticked += current_codec->get_period();
         } while ((next_ms * HZ) / 1000 <= current_tick);
@@ -673,6 +678,10 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
             pref_next();
             check_stream_cfg();
             return;
+        case ESP_A2D_PROF_STATE_EVT:
+            if (param->a2d_prof_stat.init_state == ESP_A2D_DEINIT_SUCCESS)
+                bt_core_prof_down();
+            return;
         case ESP_A2D_AUDIO_STATE_EVT:
             logf("a2d %d %d\n", event, param->audio_stat.state);
         default:
@@ -683,6 +692,10 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
 
 void bt_avrc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param) {
     switch (event) {
+        case ESP_AVRC_TG_PROF_STATE_EVT:
+            if (param->avrc_tg_init_stat.state >= ESP_AVRC_DEINIT_SUCCESS)
+                bt_core_prof_down();
+            break;
         case ESP_AVRC_TG_CONNECTION_STATE_EVT:
             logf("avrc-tg %d %d", event, param->conn_stat.connected);
             break;

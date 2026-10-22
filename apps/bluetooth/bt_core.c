@@ -42,6 +42,7 @@
 #include "string-extra.h"
 #include "file.h"
 #include "lang.h"
+#include "semaphore.h"
 #include "settings.h"
 #include "splash.h"
 
@@ -56,6 +57,9 @@
  * joint stereo at 44.1 kHz */
 #define BT_SBC_HIGH_BITPOOL     53
 #define BT_SBC_STANDARD_BITPOOL 35
+
+/* How long to wait for the profiles to go down, closing a link included */
+#define BT_PROF_DOWN_TIMEOUT    (3*HZ)
 
 /* Discovery runs in rounds of this many 1.28 s units */
 #define BT_INQ_LEN      5
@@ -452,11 +456,47 @@ bool bt_is_enabled(void)
     return esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED;
 }
 
+/* Profiles are taken down on Bluedroid's threads: A2DP closes a connected
+ * link first and finishes once it is idle. The stack must not be disabled
+ * under them, or the disable may never complete. */
+static struct semaphore prof_down;
+
+void bt_core_prof_down(void)
+{
+    semaphore_release(&prof_down);
+}
+
+static void profiles_down(void)
+{
+    int pending = 0;
+
+    semaphore_init(&prof_down, 3, 0);
+
+    /* AVRCP before A2DP, as Bluedroid wants it */
+    if (esp_avrc_ct_deinit() == ESP_OK)
+        pending++;
+    if (esp_avrc_tg_deinit() == ESP_OK)
+        pending++;
+    if (esp_a2d_source_deinit() == ESP_OK)
+        pending++;
+
+    long timeout = current_tick + BT_PROF_DOWN_TIMEOUT;
+    while (pending > 0)
+    {
+        long left = timeout - current_tick;
+        if (left <= 0 ||
+            semaphore_wait(&prof_down, left) != OBJ_WAIT_SUCCEEDED)
+        {
+            logf("bt: %d profiles not down, disabling anyway", pending);
+            break;
+        }
+        pending--;
+    }
+}
+
 static void stack_down(void)
 {
-    esp_a2d_source_deinit();
-    esp_avrc_ct_deinit();
-    esp_avrc_tg_deinit();
+    profiles_down();
     if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED)
         esp_bluedroid_disable();
     if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_UNINITIALIZED)
