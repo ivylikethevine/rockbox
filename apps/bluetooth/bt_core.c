@@ -775,10 +775,11 @@ bool bt_connect(const uint8_t *addr)
     if (peer_state == BT_CONN_DISCONNECTED)
         return a2d_connect(addr);
 
-    if (addr_eq(peer, addr))
+    if (addr_eq(peer, addr) && peer_state != BT_CONN_DISCONNECTING)
         return true;
 
-    /* Swap sinks once the current one is gone */
+    /* Once the current link is gone: another sink, or this one again if
+     * its link is just going */
     memcpy(pending, addr, BT_ADDR_LEN);
     pending_valid = true;
     if (peer_state != BT_CONN_DISCONNECTING)
