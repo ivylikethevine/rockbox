@@ -511,6 +511,8 @@ void bt_sink_lost(void) {
     sink_lost();
     bt_volume_disconnected();
 
+    stream_cfg_valid = false;
+    pref_reset();
     link_open = false;
     codec_ready = false;
     if (current_codec != NULL) {
@@ -614,8 +616,6 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 link_open = true;
                 check_stream_cfg();
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED || param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTING) {
-                stream_cfg_valid = false;
-                pref_reset();
                 bt_sink_lost();
             }
             return;

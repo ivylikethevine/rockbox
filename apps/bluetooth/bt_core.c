@@ -86,6 +86,15 @@ static int autoconnect_next = -1;
 static int autoconnect_pass = -1;
 static osi_alarm_t *autoconnect_alarm;
 
+/* A connection attempt that doesn't come to anything: Bluedroid can stay
+ * in its opening state for good when the link goes before the stream is
+ * open, e.g. both sides connecting at once. Asked to disconnect after
+ * BT_CONNECT_TIMEOUT, given up on BT_CONNECT_ABORT after that. */
+#define BT_CONNECT_TIMEOUT  20000   /* ms */
+#define BT_CONNECT_ABORT    5000    /* ms */
+static osi_alarm_t *connect_alarm;
+static bool connect_aborting;
+
 static uint8_t pair_addr[BT_ADDR_LEN];
 static char pair_name[BT_NAME_LEN];
 static enum bt_pair_state pair_state = BT_PAIR_IDLE;
@@ -349,6 +358,44 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 /***********************************/
 /*    A2DP LINK                    */
 
+static void connect_watch(bool on)
+{
+    if (!connect_alarm)
+        return;
+    if (on)
+    {
+        connect_aborting = false;
+        osi_alarm_set(connect_alarm, BT_CONNECT_TIMEOUT);
+    }
+    else
+        osi_alarm_cancel(connect_alarm);
+}
+
+/* On Bluedroid's alarm thread */
+static void connect_timeout(void *arg)
+{
+    (void)arg;
+    if (!bt_is_enabled() || peer_state != BT_CONN_CONNECTING)
+        return;
+
+    if (!connect_aborting)
+    {
+        logf("bt: connecting takes too long, disconnecting");
+        connect_aborting = true;
+        esp_a2d_source_disconnect(addr_arg(peer));
+        osi_alarm_set(connect_alarm, BT_CONNECT_ABORT);
+        return;
+    }
+
+    /* Not even that came back: the link is gone as far as we're
+     * concerned, connect again as after any other */
+    logf("bt: no answer to disconnecting, giving up on the link");
+    uint8_t addr[BT_ADDR_LEN];
+    memcpy(addr, peer, BT_ADDR_LEN);
+    bt_sink_lost();
+    bt_core_a2d_conn_state(ESP_A2D_CONNECTION_STATE_DISCONNECTED, addr);
+}
+
 static bool a2d_connect(const uint8_t *addr)
 {
     /* Inquiry and paging share the radio */
@@ -359,6 +406,7 @@ static bool a2d_connect(const uint8_t *addr)
 
     memcpy(peer, addr, BT_ADDR_LEN);
     peer_state = BT_CONN_CONNECTING;
+    connect_watch(true);
     bt_changed();
     return true;
 }
@@ -472,18 +520,22 @@ bool bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
     {
         case ESP_A2D_CONNECTION_STATE_CONNECTING:
             peer_state = BT_CONN_CONNECTING;
+            connect_watch(true);
             break;
         case ESP_A2D_CONNECTION_STATE_CONNECTED:
             peer_state = BT_CONN_CONNECTED;
+            connect_watch(false);
             autoconnect_stop();
             /* Keep its own name current */
             esp_bt_gap_read_remote_name(addr_arg(addr));
             break;
         case ESP_A2D_CONNECTION_STATE_DISCONNECTING:
             peer_state = BT_CONN_DISCONNECTING;
+            connect_watch(false);
             break;
         case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
             peer_state = BT_CONN_DISCONNECTED;
+            connect_watch(false);
             /* The link went before the bond was made */
             if (pair_state == BT_PAIR_BUSY && addr_eq(addr, pair_addr))
                 pair_state = BT_PAIR_FAILED;
@@ -641,6 +693,7 @@ bool bt_enable(void)
     update_scan_mode();
     autoconnect_alarm = osi_alarm_new("bt_autoconnect", autoconnect_retry,
                                       NULL, 0);
+    connect_alarm = osi_alarm_new("bt_connect", connect_timeout, NULL, 0);
     autoconnect_start();
     bt_changed();
     return true;
@@ -674,8 +727,10 @@ void bt_disable(void)
     bt_discovery_stop();
     pending_valid = false;
     autoconnect_stop();
-    /* the stack frees it with its other alarms */
+    connect_watch(false);
+    /* the stack frees them with its other alarms */
     autoconnect_alarm = NULL;
+    connect_alarm = NULL;
 
     /* No disconnect event comes once the stack is gone */
     bt_sink_lost();

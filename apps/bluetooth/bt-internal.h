@@ -40,7 +40,7 @@ bool bt_a2d_register_endpoint(void);
 size_t bt_read_pcm(uint8_t *buf, size_t len);
 
 /* bt.c: the A2DP link is gone or going, use the built-in output again
- * and drop the encoder */
+ * and drop the encoder and the stream setup */
 void bt_sink_lost(void);
 
 /* bt_volume.c: the Bluetooth output's volume */
