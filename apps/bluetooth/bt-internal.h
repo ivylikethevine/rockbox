@@ -56,6 +56,8 @@ bool bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
                             const uint8_t *addr);
 /* A profile reported it is down, see stack_down() */
 void bt_core_prof_down(void);
+/* bt.c, bt_volume.c: an AVRCP profile's init is done, or failed */
+void bt_core_prof_up(bool ok);
 /* The connected A2DP sink, NULL if there is none */
 const uint8_t *bt_core_peer(void);
 /* The codec the A2DP sink is asked to use, from its codec option */

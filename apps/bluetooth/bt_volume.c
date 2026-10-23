@@ -161,6 +161,9 @@ void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
     case ESP_AVRC_CT_PROF_STATE_EVT:
         if (param->avrc_ct_init_stat.state >= ESP_AVRC_DEINIT_SUCCESS)
             bt_core_prof_down();
+        else
+            bt_core_prof_up(param->avrc_ct_init_stat.state !=
+                            ESP_AVRC_INIT_FAIL);
         break;
 
     case ESP_AVRC_CT_CONNECTION_STATE_EVT:

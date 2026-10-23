@@ -696,6 +696,9 @@ void bt_avrc_tg_cb(esp_avrc_tg_cb_event_t event, esp_avrc_tg_cb_param_t *param) 
         case ESP_AVRC_TG_PROF_STATE_EVT:
             if (param->avrc_tg_init_stat.state >= ESP_AVRC_DEINIT_SUCCESS)
                 bt_core_prof_down();
+            else
+                bt_core_prof_up(param->avrc_tg_init_stat.state !=
+                                ESP_AVRC_INIT_FAIL);
             break;
         case ESP_AVRC_TG_CONNECTION_STATE_EVT:
             logf("avrc-tg %d %d", event, param->conn_stat.connected);

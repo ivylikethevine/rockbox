@@ -61,6 +61,7 @@
 
 /* How long to wait for the profiles to go down, closing a link included */
 #define BT_PROF_DOWN_TIMEOUT    (3*HZ)
+#define BT_PROF_UP_TIMEOUT      (3*HZ)
 
 /* Discovery runs in rounds of this many 1.28 s units */
 #define BT_INQ_LEN      5
@@ -616,12 +617,43 @@ static void stack_down(void)
     bt_hci_disable();
 }
 
+/* The AVRCP profiles' init finishes on Bluedroid's thread, after the
+ * init calls return: the passthrough commands and A2DP are only set up
+ * once it has, or they fail ("AVRC TG not yet initialized") */
+static struct semaphore prof_up;
+static int prof_up_failed;
+
+void bt_core_prof_up(bool ok)
+{
+    if (!ok)
+        prof_up_failed++;
+    semaphore_release(&prof_up);
+}
+
 static bool avrc_up(void)
 {
-    if (esp_avrc_tg_init() != ESP_OK ||
-        esp_avrc_tg_register_callback(bt_avrc_tg_cb) != ESP_OK ||
-        esp_avrc_ct_init() != ESP_OK ||
-        esp_avrc_ct_register_callback(bt_avrc_ct_cb) != ESP_OK)
+    semaphore_init(&prof_up, 2, 0);
+    prof_up_failed = 0;
+
+    /* callbacks first, for the init events */
+    if (esp_avrc_tg_register_callback(bt_avrc_tg_cb) != ESP_OK ||
+        esp_avrc_ct_register_callback(bt_avrc_ct_cb) != ESP_OK ||
+        esp_avrc_tg_init() != ESP_OK ||
+        esp_avrc_ct_init() != ESP_OK)
+        return false;
+
+    long timeout = current_tick + BT_PROF_UP_TIMEOUT;
+    for (int pending = 2; pending > 0; pending--)
+    {
+        long left = timeout - current_tick;
+        if (left <= 0 ||
+            semaphore_wait(&prof_up, left) != OBJ_WAIT_SUCCEEDED)
+        {
+            logf("bt: AVRCP didn't come up");
+            return false;
+        }
+    }
+    if (prof_up_failed)
         return false;
 
     static const uint8_t cmds[] = {
