@@ -526,6 +526,25 @@ static BOOLEAN btc_av_state_opening_handler(btc_sm_event_t event, void *p_data)
         btc_sm_change_state(btc_av_cb.sm_handle, BTC_AV_STATE_IDLE);
         break;
 
+    /* Rockbox: the app giving up on an open that doesn't complete, or the
+     * link going before it does. Without these the state machine stayed
+     * here for good and took every later connect to the device as one
+     * already under way. */
+    case BTC_AV_DISCONNECT_REQ_EVT:
+        BTC_TRACE_WARNING("%s: disconnect while opening\n", __FUNCTION__);
+        BTA_AvClose(btc_av_cb.bta_handle);
+        btc_report_connection_state(ESP_A2D_CONNECTION_STATE_DISCONNECTED, &(btc_av_cb.peer_bda), 0, 0);
+        btc_sm_change_state(btc_av_cb.sm_handle, BTC_AV_STATE_IDLE);
+        btc_queue_advance();
+        break;
+
+    case BTA_AV_CLOSE_EVT:
+        BTC_TRACE_WARNING("%s: closed while opening\n", __FUNCTION__);
+        btc_report_connection_state(ESP_A2D_CONNECTION_STATE_DISCONNECTED, &(btc_av_cb.peer_bda), 0, 0);
+        btc_sm_change_state(btc_av_cb.sm_handle, BTC_AV_STATE_IDLE);
+        btc_queue_advance();
+        break;
+
     case BTA_AV_OPEN_EVT: {
         tBTA_AV *p_bta_data = (tBTA_AV *)p_data;
         esp_a2d_connection_state_t conn_stat;
@@ -1973,8 +1992,16 @@ static void btc_a2d_src_deinit(void)
         if (btc_av_cb.peer_sep == AVDT_TSEP_SNK && g_av_with_rc == true) {
             BTA_AvCloseRc(btc_av_cb.bta_handle);
         }
-    } else if (btc_sm_get_state(btc_av_cb.sm_handle) == BTC_AV_STATE_IDLE) {
-        clean_up(BTA_A2DP_SOURCE_SERVICE_ID);
+    } else {
+        /* Rockbox: an open that never completes would hold the deinit
+         * off for good, and A2DP then stays marked as up into the next
+         * init (AVRCP init fails on that): give up on it */
+        if (btc_sm_get_state(btc_av_cb.sm_handle) == BTC_AV_STATE_OPENING) {
+            btc_sm_dispatch(btc_av_cb.sm_handle, BTC_AV_DISCONNECT_REQ_EVT, NULL);
+        }
+        if (btc_sm_get_state(btc_av_cb.sm_handle) == BTC_AV_STATE_IDLE) {
+            clean_up(BTA_A2DP_SOURCE_SERVICE_ID);
+        }
     }
 }
 
