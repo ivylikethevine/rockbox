@@ -38,7 +38,10 @@
 #define A2DP_SBC_BUFFER_SIZE BT_DEFAULT_BUFFER_SIZE
 
 // A2DP SBC encoder interval in milliseconds.
-#define A2DP_SBC_ENCODER_INTERVAL_MS 20
+/* 10 rather than AOSP's 20: a packet holds about 14.5 ms of audio, so a 20
+ * ms tick sent one packet or two, and the chip held the pairs longer; at 10
+ * ms it is one at most, since the budget follows elapsed time */
+#define A2DP_SBC_ENCODER_INTERVAL_MS 10
 
 /* High quality quality setting @ 44.1 khz */
 #define A2DP_SBC_DEFAULT_BITRATE 328
@@ -62,6 +65,8 @@
 #define A2DP_SBC_OFFSET (AVDT_MEDIA_OFFSET + A2DP_HDR_SIZE)
 
 #define MAX_PCM_FRAME_NUM_PER_TICK 14
+
+#define A2DP_SBC_MAX_2MBPS_MTU 663
 
 typedef struct {
   uint32_t aa_frame_counter;
@@ -109,18 +114,19 @@ static tA2DP_SBC_ENCODER_CB a2dp_sbc_encoder_cb;
  *
  * The bitpool goes in every SBC frame header, so the sink follows it frame by
  * frame and nothing has to be renegotiated. When media packets back up below
- * us the link can't carry the rate, so the bitpool steps down fast; once the
- * link has been clean for a while it creeps back up to the negotiated value.
+ * us the link can't carry the rate, so the bitpool steps down; a single late
+ * media tick shouldn't trigger it. Once the link has been clean for a while it
+ * creeps back up to the negotiated value.
  * It only changes at a media tick: packets never span ticks, so all frames in
  * a packet keep one length and the MTU packing stays right.
  */
-#define DYN_BP_FLOOR            14  /* about 115 kbps at 44.1 kHz */
-#define DYN_BP_BACKLOG_HIGH     3   /* media packets, about 60 ms */
+#define DYN_BP_FLOOR            bt_tune.bp_floor    /* 30: about 200 kbps at 44.1 kHz */
+#define DYN_BP_BACKLOG_HIGH     bt_tune.bp_backlog  /* media packets */
 #define DYN_BP_BACKLOG_LOW      1
-#define DYN_BP_DOWN_STEP        12
+#define DYN_BP_DOWN_STEP        bt_tune.bp_down_step
 #define DYN_BP_DOWN_TICKS       (150 / A2DP_SBC_ENCODER_INTERVAL_MS)
-#define DYN_BP_UP_STEP          2
-#define DYN_BP_UP_TICKS         (1000 / A2DP_SBC_ENCODER_INTERVAL_MS)
+#define DYN_BP_UP_STEP          bt_tune.bp_up_step
+#define DYN_BP_UP_TICKS         (bt_tune.bp_up_ms / A2DP_SBC_ENCODER_INTERVAL_MS)
 
 static struct {
   int16_t min;
@@ -129,6 +135,8 @@ static struct {
   uint16_t clean;
   uint32_t last_backlog;
 } dyn_bp;
+
+static uint8_t calculate_max_frames_per_packet(void);
 
 static void a2dp_sbc_dyn_bitpool_init(int16_t min, int16_t max) {
   dyn_bp.min = (min > DYN_BP_FLOOR) ? min : DYN_BP_FLOOR;
@@ -184,6 +192,12 @@ static void a2dp_sbc_dyn_bitpool(void) {
       dyn_bp.clean = 0;
       bt_stats.a2d_bp_up++;
     }
+  }
+
+  /* Fit the smaller frames into fewer packets: on the air a packet costs about
+   * the same whatever its length, so that is what leaves room for retries */
+  if (enc->s16BitPool != bt_stats.a2d_bitpool) {
+    a2dp_sbc_encoder_cb.tx_sbc_frames = calculate_max_frames_per_packet();
   }
 
   bt_stats.a2d_bitpool = enc->s16BitPool;
@@ -521,7 +535,13 @@ static void a2dp_sbc_get_num_frame_iteration(uint8_t* num_of_iterations, uint8_t
         projected_nof = nof;
       } else {
         noi = 1;  // number of iterations is 1
-        nof = projected_nof;
+        /* While the bitpool is cut, wait for a full packet */
+        if (projected_nof < nof &&
+            a2dp_sbc_encoder_cb.sbc_encoder_params.s16BitPool < dyn_bp.max) {
+          nof = 0;
+        } else {
+          nof = projected_nof;
+        }
       }
     }
   } else {
@@ -678,6 +698,10 @@ static uint16_t adjust_effective_mtu(void) {
   if (mtu_size > a2dp_sbc_encoder_cb.peer_mtu) {
     mtu_size = a2dp_sbc_encoder_cb.peer_mtu;
   }
+  /* One packet to fit one 2-DH5 */
+  if (bt_tune.edr_2mbps && mtu_size > A2DP_SBC_MAX_2MBPS_MTU) {
+    mtu_size = A2DP_SBC_MAX_2MBPS_MTU;
+  }
   return mtu_size;
 }
 
@@ -709,7 +733,8 @@ static uint8_t calculate_max_frames_per_packet(void) {
     default:
       break;
   }
-  return result;
+  /* The media packet header counts frames in four bits */
+  return (result > 0x0F) ? 0x0F : result;
 }
 
 static uint16_t a2dp_sbc_source_rate(void) {

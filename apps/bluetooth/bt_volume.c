@@ -62,6 +62,7 @@
 static uint8_t volume = BT_VOLUME_DEFAULT;
 static int balance;             /* percent, as SOUND_BALANCE */
 static bool abs_volume;         /* the sink sets it, AVRCP absolute volume */
+static bool abs_confirmed;      /* and has taken the volume we sent it */
 
 /* The device the volume is for, and whether it's been saved for it */
 static uint8_t dev_addr[BT_ADDR_LEN];
@@ -76,12 +77,17 @@ static void update_scaling(bool ramp)
 {
     int l, r;
 
-    if (abs_volume)
-        l = 0;
+    /* The precut leaves headroom for a sink's decoder, whose volume comes after
+     * it, so a low volume doesn't stop full-scale audio clipping there. Until
+     * the sink has taken our volume, it plays at whatever it had: keep ours
+     * applied here so the level doesn't step while playing. */
+    if (abs_volume && abs_confirmed)
+        l = -bt_tune.precut_db * 10;
     else if (volume == 0)
         l = SWVOL_MUTE_CB;
     else
-        l = -(VOL_MAX - volume) * SWVOL_RANGE_CB / (VOL_MAX - 1);
+        l = -(VOL_MAX - volume) * SWVOL_RANGE_CB / (VOL_MAX - 1) -
+            bt_tune.precut_db * 10;
     r = l;
 
     /* as sound.c does with the hardware volume */
@@ -117,6 +123,15 @@ static void volume_changed(uint8_t vol)
         dev_dirty = true;
         register_storage_idle_func(save_volume);
     }
+    update_scaling(true);
+}
+
+/* The sink answered with its volume: the sink's volume is in effect */
+static void abs_taken(void)
+{
+    if (!abs_volume || abs_confirmed)
+        return;
+    abs_confirmed = true;
     update_scaling(true);
 }
 
@@ -169,6 +184,7 @@ void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
     case ESP_AVRC_CT_CONNECTION_STATE_EVT:
         logf("avrc-ct connected %d", param->conn_stat.connected);
         abs_volume = false;
+        abs_confirmed = false;
         update_scaling(true);
         /* whether the sink does absolute volume */
         if (param->conn_stat.connected)
@@ -181,7 +197,6 @@ void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
         {
             logf("avrc-ct absolute volume");
             abs_volume = true;
-            update_scaling(true);
             send_volume();
             esp_avrc_ct_send_register_notification_cmd(TL_VOL_NOTIFY,
                 ESP_AVRC_RN_VOLUME_CHANGE, 0);
@@ -191,6 +206,7 @@ void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
     case ESP_AVRC_CT_SET_ABSOLUTE_VOLUME_RSP_EVT:
         /* what the sink actually set */
         volume_changed(param->set_volume_rsp.volume & VOL_MAX);
+        abs_taken();
         break;
 
     case ESP_AVRC_CT_CHANGE_NOTIFY_EVT:
@@ -199,6 +215,7 @@ void bt_avrc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
         /* The interim response is the value as we registered, after
          * ours was sent: only a change is news. It ends the
          * registration. */
+        abs_taken();
         if (!param->change_ntf.is_interim)
         {
             logf("avrc-ct sink volume %d", param->change_ntf.event_parameter.volume);
@@ -259,5 +276,6 @@ const struct pcm_sink_volume bt_pcm_sink_volume = {
 
 void bt_volume_debug(char *buf, size_t len)
 {
-    snprintf(buf, len, "vol %d %s", volume, abs_volume ? "avrcp" : "sw");
+    snprintf(buf, len, "vol %d %s", volume,
+             !abs_volume ? "sw" : abs_confirmed ? "avrcp" : "avrcp pending");
 }

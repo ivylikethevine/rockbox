@@ -2487,14 +2487,19 @@ const struct settings_list settings[] = {
     BOOL_SETTING(0, bluetooth_auto_connect, LANG_BLUETOOTH_AUTO_CONNECT, true,
                  "bluetooth auto connect", off_on,
                  LANG_SET_BOOL_YES, LANG_SET_BOOL_NO, NULL),
-    CHOICE_SETTING(0, bluetooth_codec, LANG_BLUETOOTH_CODEC, 0,
-                   "bluetooth codec", "sbc high,sbc standard,aptx,aptx hd,ldac",
-                   NULL, 5,
+    CHOICE_SETTING(0, bluetooth_codec, LANG_BLUETOOTH_CODEC, 5,
+                   "bluetooth codec",
+                   "sbc high,sbc standard,aptx,aptx hd,ldac,best",
+                   NULL, 6,
                    ID2P(LANG_BLUETOOTH_CODEC_SBC_HIGH),
                    ID2P(LANG_BLUETOOTH_CODEC_SBC_STANDARD),
                    ID2P(LANG_BLUETOOTH_CODEC_APTX),
                    ID2P(LANG_BLUETOOTH_CODEC_APTX_HD),
-                   ID2P(LANG_BLUETOOTH_CODEC_LDAC)),
+                   ID2P(LANG_BLUETOOTH_CODEC_LDAC),
+                   ID2P(LANG_BLUETOOTH_CODEC_BEST)),
+    BOOL_SETTING(0, bluetooth_fixed_rate, LANG_BLUETOOTH_FIXED_RATE, true,
+                 "bluetooth stream at 44.1 khz", off_on,
+                 LANG_SET_BOOL_YES, LANG_SET_BOOL_NO, NULL),
 #endif
 
 #ifdef USB_ENABLE_HID

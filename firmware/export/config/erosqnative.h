@@ -77,6 +77,10 @@
 #define HAVE_EROS_QN_CODEC
 #define HAVE_SW_TONE_CONTROLS
 #define HAVE_SW_VOLUME_CONTROL
+#ifndef BOOTLOADER
+/* headphone amp off while Bluetooth plays */
+#define HAVE_AUDIOHW_STANDBY
+#endif
 #define AUDIOHW_CAPS (FILTER_ROLL_OFF_CAP)
 #define AUDIOHW_HAVE_SHORT_ROLL_OFF
 

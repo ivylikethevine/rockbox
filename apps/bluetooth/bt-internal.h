@@ -39,6 +39,19 @@ bool bt_a2d_register_endpoint(void);
  * nothing plays */
 size_t bt_read_pcm(uint8_t *buf, size_t len);
 
+/* bt.c: test settings, read when Bluetooth starts */
+struct bt_tune {
+    int bp_floor;
+    int bp_backlog;
+    int bp_down_step;
+    int bp_up_step;
+    int bp_up_ms;
+    int precut_db;
+    int edr_2mbps;
+};
+extern struct bt_tune bt_tune;
+void bt_tune_read(void);
+
 /* bt.c: the A2DP link is gone or going, use the built-in output again
  * and drop the encoder and the stream setup */
 void bt_sink_lost(void);
@@ -49,6 +62,22 @@ extern const struct pcm_sink_volume bt_pcm_sink_volume;
 void bt_volume_connected(const uint8_t *addr);
 void bt_volume_disconnected(void);
 void bt_volume_debug(char *buf, size_t len);
+
+/* bt.c: the A2DP sink role, set up and taken down by the core;
+ * a2d_cb() and avrc_ct_cb() in bt_core.c hand their events over meanwhile */
+bool bt_receive_up(void);
+void bt_receive_down(void);
+/* The phone's address, NULL if none is connected */
+const uint8_t *bt_receive_peer(void);
+void bt_receive_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
+void bt_receive_avrc_ct_cb(esp_avrc_ct_cb_event_t event,
+                           esp_avrc_ct_cb_param_t *param);
+void bt_receive_debug(char *buf, size_t len);
+
+/* bt.c: track information for the AVRCP controller, set up with the
+ * AVRCP target */
+bool bt_track_up(void);
+void bt_track_down(void);
 
 /* bt_core.c, A2DP connection changes passed on by bt_a2d_cb(). False if
  * the change is about another device than the link's, to be ignored. */

@@ -74,6 +74,9 @@ enum pcm_mixer_channel
 #if defined(USB_ENABLE_AUDIO) || defined(HAVE_HOST_USB_AUDIO)
     PCM_MIXER_CHAN_USBAUDIO,
 #endif
+#ifdef HAVE_BLUETOOTH
+    PCM_MIXER_CHAN_BTAUDIO,     /* audio received over Bluetooth */
+#endif
     PCM_MIXER_CHAN_VOICE,
 #ifndef HAVE_HARDWARE_BEEP
     PCM_MIXER_CHAN_BEEP,

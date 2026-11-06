@@ -99,10 +99,40 @@ static bool connect_aborting;
 static uint8_t pair_addr[BT_ADDR_LEN];
 static char pair_name[BT_NAME_LEN];
 static enum bt_pair_state pair_state = BT_PAIR_IDLE;
+static uint32_t pair_code;
+static char pair_pin[ESP_BT_PIN_CODE_LEN + 1];
+static bool pair_pin_asked;
+
+/* The stack is in the A2DP sink role, see bt_receive_start() */
+static bool receiving;
+
+/* What other devices see us as */
+static char local_name[32];
 
 static bool addr_eq(const uint8_t *a, const uint8_t *b)
 {
     return memcmp(a, b, BT_ADDR_LEN) == 0;
+}
+
+static bool pairing(void)
+{
+    return pair_state == BT_PAIR_BUSY || pair_state == BT_PAIR_CONFIRM ||
+           pair_state == BT_PAIR_PASSKEY;
+}
+
+/* Nobody will answer any more: a pending confirmation is refused rather
+ * than left to time out on the device */
+static void pairing_given_up(void)
+{
+    if (pair_state == BT_PAIR_CONFIRM)
+        esp_bt_gap_ssp_confirm_reply(pair_addr, false);
+    pair_state = BT_PAIR_FAILED;
+}
+
+/* The device the user is pairing with */
+static bool pairing_with(const uint8_t *addr)
+{
+    return pairing() && addr_eq(addr, pair_addr);
 }
 
 /* Bluedroid takes non-const addresses */
@@ -270,7 +300,7 @@ static void gap_disc_res(esp_bt_gap_cb_param_t *param)
 static void gap_auth_cmpl(esp_bt_gap_cb_param_t *param)
 {
     const uint8_t *addr = param->auth_cmpl.bda;
-    bool ours = pair_state == BT_PAIR_BUSY && addr_eq(addr, pair_addr);
+    bool ours = pairing_with(addr);
     char name[BT_NAME_LEN];
 
     if (param->auth_cmpl.stat != ESP_BT_STATUS_SUCCESS)
@@ -312,16 +342,58 @@ static void gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
                                            BT_INQ_LEN, 0);
             break;
         case ESP_BT_GAP_CFM_REQ_EVT:
-            /* Speakers and headphones have no display, nothing to compare */
+            /* Bluedroid accepts Just Works itself (btc_dm.c): this is
+             * numeric comparison, the device shows the number too. For a
+             * device the user is pairing with, the user compares them. */
             logf("bt: confirm %lu", (unsigned long)param->cfm_req.num_val);
-            esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+            if (receiving && !pairing())
+            {
+                /* A phone pairing with us while we're visible: the
+                 * receiving screen asks the user. Its own name comes with
+                 * the completion event. */
+                memcpy(pair_addr, param->cfm_req.bda, BT_ADDR_LEN);
+                pair_name[0] = '\0';
+                pair_pin[0] = '\0';
+                pair_pin_asked = false;
+                pair_state = BT_PAIR_BUSY;
+            }
+            if (pairing_with(param->cfm_req.bda))
+            {
+                pair_code = param->cfm_req.num_val;
+                pair_state = BT_PAIR_CONFIRM;
+                bt_changed();
+            }
+            else
+                esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+            break;
+        case ESP_BT_GAP_KEY_NOTIF_EVT:
+            /* The device has a keypad: the user types the passkey on it */
+            logf("bt: passkey %lu", (unsigned long)param->key_notif.passkey);
+            if (pairing_with(param->key_notif.bda))
+            {
+                pair_code = param->key_notif.passkey;
+                pair_state = BT_PAIR_PASSKEY;
+                bt_changed();
+            }
+            break;
+        case ESP_BT_GAP_KEY_REQ_EVT:
+            /* Only asked of a keyboard, which we don't claim to have */
+            esp_bt_gap_ssp_passkey_reply(param->key_req.bda, false, 0);
             break;
         case ESP_BT_GAP_PIN_REQ_EVT:
         {
-            /* Legacy devices nearly all take 0000 */
+            /* Legacy devices nearly all take 0000, else the user's */
             esp_bt_pin_code_t pin = {0};
             int len = 16;
-            if (!param->pin_req.min_16_digit)
+            bool ours = pairing_with(param->pin_req.bda);
+            if (ours)
+                pair_pin_asked = true;
+            if (ours && pair_pin[0])
+            {
+                len = strlen(pair_pin);
+                memcpy(pin, pair_pin, len);
+            }
+            else if (!param->pin_req.min_16_digit)
             {
                 memset(pin, '0', 4);
                 len = 4;
@@ -470,11 +542,18 @@ static void autoconnect_start(void)
 
 /* Devices set to connect by themselves may also connect to us, e.g.
  * headphones switched on after Bluetooth came up */
+/* Connectable while a device with auto-connect could call, except with a
+ * link up: page scan takes the radio for a receive window every 1.28 s,
+ * which a stream can't spare, and one device at a time is all we take.
+ * Receive Audio sets its own mode. */
 static void update_scan_mode(void)
 {
     esp_bt_connection_mode_t mode = ESP_BT_NON_CONNECTABLE;
 
-    for (int i = 0; i < paired_count; i++)
+    if (receiving)
+        return;
+
+    for (int i = 0; i < paired_count && peer_state != BT_CONN_CONNECTED; i++)
     {
         if (bt_get_option(paired[i].addr, BT_OPT_AUTO_CONNECT))
         {
@@ -490,7 +569,7 @@ enum bt_codec bt_core_codec(void)
 {
     int codec = bt_get_option(peer, BT_OPT_CODEC);
     if (codec < 0 || codec >= BT_NUM_CODECS)
-        codec = BT_CODEC_SBC_HIGH;
+        codec = BT_CODEC_BEST;
     return codec;
 }
 
@@ -527,6 +606,7 @@ bool bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
             peer_state = BT_CONN_CONNECTED;
             connect_watch(false);
             autoconnect_stop();
+            update_scan_mode();
             /* Keep its own name current */
             esp_bt_gap_read_remote_name(addr_arg(addr));
             break;
@@ -537,8 +617,9 @@ bool bt_core_a2d_conn_state(esp_a2d_connection_state_t state,
         case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
             peer_state = BT_CONN_DISCONNECTED;
             connect_watch(false);
+            update_scan_mode();
             /* The link went before the bond was made */
-            if (pair_state == BT_PAIR_BUSY && addr_eq(addr, pair_addr))
+            if (pairing_with(addr))
                 pair_state = BT_PAIR_FAILED;
             if (pending_valid)
             {
@@ -590,7 +671,7 @@ static void profiles_down(void)
         pending++;
     if (esp_avrc_tg_deinit() == ESP_OK)
         pending++;
-    if (esp_a2d_source_deinit() == ESP_OK)
+    if ((receiving ? esp_a2d_sink_deinit() : esp_a2d_source_deinit()) == ESP_OK)
         pending++;
 
     long timeout = current_tick + BT_PROF_DOWN_TIMEOUT;
@@ -630,6 +711,26 @@ void bt_core_prof_up(bool ok)
     semaphore_release(&prof_up);
 }
 
+/* While receiving, A2DP and the AVRCP controller deal with a phone, not
+ * headphones: their events go to bt_receive_*() in bt.c. The controller's
+ * init and deinit stay with bt_volume.c, which reports them to the core. */
+static void a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
+{
+    if (receiving)
+        bt_receive_a2d_cb(event, param);
+    else
+        bt_a2d_cb(event, param);
+}
+
+static void avrc_ct_cb(esp_avrc_ct_cb_event_t event,
+                       esp_avrc_ct_cb_param_t *param)
+{
+    if (receiving && event != ESP_AVRC_CT_PROF_STATE_EVT)
+        bt_receive_avrc_ct_cb(event, param);
+    else
+        bt_avrc_ct_cb(event, param);
+}
+
 static bool avrc_up(void)
 {
     semaphore_init(&prof_up, 2, 0);
@@ -637,7 +738,7 @@ static bool avrc_up(void)
 
     /* callbacks first, for the init events */
     if (esp_avrc_tg_register_callback(bt_avrc_tg_cb) != ESP_OK ||
-        esp_avrc_ct_register_callback(bt_avrc_ct_cb) != ESP_OK ||
+        esp_avrc_ct_register_callback(avrc_ct_cb) != ESP_OK ||
         esp_avrc_tg_init() != ESP_OK ||
         esp_avrc_ct_init() != ESP_OK)
         return false;
@@ -666,8 +767,14 @@ static bool avrc_up(void)
         esp_avrc_psth_bit_mask_operation(ESP_AVRC_BIT_MASK_OP_SET,
                                          &psth, cmds[i]);
 
-    return esp_avrc_tg_set_psth_cmd_filter(ESP_AVRC_PSTH_FILTER_SUPPORTED_CMD,
-                                           &psth) == ESP_OK;
+    if (esp_avrc_tg_set_psth_cmd_filter(ESP_AVRC_PSTH_FILTER_SUPPORTED_CMD,
+                                        &psth) != ESP_OK)
+        return false;
+
+    /* without it the controller just shows nothing */
+    if (!bt_track_up())
+        logf("bt: no track information for AVRCP");
+    return true;
 }
 
 static bool stack_up(void)
@@ -686,21 +793,21 @@ static bool stack_up(void)
         esp_bt_gap_register_callback(gap_cb) != ESP_OK)
         return false;
 
-    char name[32] = "Rockbox";
+    strmemccpy(local_name, "Rockbox", sizeof(local_name));
     int fd = open_utf8(ROCKBOX_DIR "/playername.txt", O_RDONLY);
     if (fd >= 0)
     {
-        read_line(fd, name, sizeof(name));
+        read_line(fd, local_name, sizeof(local_name));
         close(fd);
     }
-    if (esp_bt_gap_set_device_name(name) != ESP_OK)
+    if (esp_bt_gap_set_device_name(local_name) != ESP_OK)
         return false;
 
     if (!avrc_up())
         return false;
 
     if (esp_a2d_source_init() != ESP_OK ||
-        esp_a2d_register_callback(bt_a2d_cb) != ESP_OK ||
+        esp_a2d_register_callback(a2d_cb) != ESP_OK ||
         !bt_a2d_register_endpoint())
         return false;
 
@@ -712,6 +819,10 @@ bool bt_enable(void)
     if (bt_is_enabled())
         return true;
 
+    bt_tune_read();
+
+    /* a driver that can't bring the controller up attaches nothing, and
+     * Bluedroid then fails to start */
     bt_hci_enable();
     if (!stack_up())
     {
@@ -766,12 +877,139 @@ void bt_disable(void)
 
     /* No disconnect event comes once the stack is gone */
     bt_sink_lost();
+    bt_track_down();
     stack_down();
+    if (receiving)
+    {
+        bt_receive_down();
+        receiving = false;
+    }
     peer_state = BT_CONN_DISCONNECTED;
-    if (pair_state == BT_PAIR_BUSY)
+    if (pairing())
         pair_state = BT_PAIR_FAILED;
     found_count = 0;
     bt_changed();
+}
+
+void bt_restart(void)
+{
+    if (!bt_is_enabled())
+        return;
+
+    logf("bt: controller lost, restarting");
+    bt_disable();
+    bt_set_enabled(true);
+}
+
+/***********************************/
+/*    RECEIVING                    */
+
+/* Bluedroid runs one A2DP role at a time: take the one in use down,
+ * closing its link, before bringing up the other */
+static void a2d_role_down(bool sink)
+{
+    semaphore_init(&prof_down, 1, 0);
+    if ((sink ? esp_a2d_sink_deinit() : esp_a2d_source_deinit()) != ESP_OK ||
+        semaphore_wait(&prof_down, BT_PROF_DOWN_TIMEOUT) != OBJ_WAIT_SUCCEEDED)
+        logf("bt: A2DP %s not down", sink ? "sink" : "source");
+}
+
+static bool source_up(void)
+{
+    return esp_a2d_source_init() == ESP_OK && bt_a2d_register_endpoint();
+}
+
+bool bt_receive_start(void)
+{
+    if (!bt_is_enabled())
+        return false;
+    if (receiving)
+        return true;
+
+    bt_discovery_stop();
+    autoconnect_stop();
+    pending_valid = false;
+    connect_watch(false);
+    bt_sink_lost();
+
+    a2d_role_down(false);
+    peer_state = BT_CONN_DISCONNECTED;
+
+    receiving = true;
+    if (esp_a2d_sink_init() != ESP_OK || !bt_receive_up())
+    {
+        logf("bt: A2DP sink failed to start");
+        a2d_role_down(true);
+        bt_receive_down();
+        receiving = false;
+        source_up();
+        update_scan_mode();
+        return false;
+    }
+
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+    bt_changed();
+    return true;
+}
+
+void bt_receive_stop(void)
+{
+    if (!receiving)
+        return;
+
+    esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+    a2d_role_down(true);
+    bt_receive_down();
+    receiving = false;
+    /* a phone asking to pair finds no one to ask any more */
+    if (pairing())
+        pairing_given_up();
+
+    if (!source_up())
+        logf("bt: A2DP source failed to start again");
+    update_scan_mode();
+    autoconnect_start();
+    bt_changed();
+}
+
+bool bt_receiving(void)
+{
+    return receiving;
+}
+
+const char *bt_local_name(void)
+{
+    return local_name;
+}
+
+static const uint8_t *connected_addr(void)
+{
+    if (receiving)
+        return bt_receive_peer();
+    return bt_is_enabled() ? bt_core_peer() : NULL;
+}
+
+bool bt_is_connected(void)
+{
+    return connected_addr() != NULL;
+}
+
+bool bt_connected_device(char *buf, size_t len)
+{
+    const uint8_t *addr = connected_addr();
+
+    if (!addr)
+        return false;
+    device_name(addr, buf, len);
+    return true;
+}
+
+void bt_pair_peer_name(char *buf, size_t len)
+{
+    if (pair_name[0])
+        strmemccpy(buf, pair_name, len);
+    else
+        device_name(pair_addr, buf, len);
 }
 
 /***********************************/
@@ -823,7 +1061,7 @@ bool bt_found_get(int idx, struct bt_device *dev)
     return true;
 }
 
-bool bt_pair(const uint8_t *addr)
+bool bt_pair(const uint8_t *addr, const char *pin)
 {
     int i = find_dev(found, found_count, addr);
 
@@ -835,6 +1073,8 @@ bool bt_pair(const uint8_t *addr)
         strmemccpy(pair_name, found[i].name, sizeof(pair_name));
     else
         pair_name[0] = '\0';
+    strmemccpy(pair_pin, pin ? pin : "", sizeof(pair_pin));
+    pair_pin_asked = false;
     pair_state = BT_PAIR_BUSY;
 
     /* Bluedroid bonds when the A2DP link asks for security */
@@ -849,6 +1089,27 @@ bool bt_pair(const uint8_t *addr)
 enum bt_pair_state bt_pair_state(void)
 {
     return pair_state;
+}
+
+uint32_t bt_pair_code(void)
+{
+    return pair_code;
+}
+
+void bt_pair_confirm(bool same)
+{
+    if (pair_state != BT_PAIR_CONFIRM)
+        return;
+
+    /* A refusal fails the bond, its completion event follows */
+    pair_state = same ? BT_PAIR_BUSY : BT_PAIR_FAILED;
+    esp_bt_gap_ssp_confirm_reply(pair_addr, same);
+    bt_changed();
+}
+
+bool bt_pair_pin_asked(void)
+{
+    return pair_pin_asked;
 }
 
 bool bt_connect(const uint8_t *addr)
@@ -879,6 +1140,9 @@ bool bt_disconnect(const uint8_t *addr)
     autoconnect_stop();
     if (pending_valid && addr_eq(pending, addr))
         pending_valid = false;
+    /* The user gave up: nothing waits for a prompt any more */
+    if (pairing_with(addr))
+        pairing_given_up();
 
     if (!bt_is_enabled() || peer_state == BT_CONN_DISCONNECTED ||
         !addr_eq(peer, addr))

@@ -959,6 +959,7 @@ struct user_settings
      * Bluetooth core, see bt.h */
     bool bluetooth_auto_connect;
     int bluetooth_codec;         /* enum bt_codec */
+    bool bluetooth_fixed_rate;   /* stream at 44.1 kHz, resampling the rest */
 #endif
 };
 

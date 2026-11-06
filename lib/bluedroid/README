@@ -71,6 +71,8 @@ src/btc/profile/std/a2dp/btc_av.c: clear the remote bitpool preference after a s
 export/esp_avrc_api.h, src/btc/profile/std/avrc/btc_avrc.c: pass on interim notification responses, flagged is_interim
 src/hci/hci_layer.c: hci_shut_down() stops the HCI host thread before freeing its queues and event
 src/btc/profile/std/a2dp/btc_av.c: the opening state handles a disconnect request and a close, back to idle; source deinit gives up on an open under way
+export/esp_avrc_api.h, src/api/esp_avrc_api.c, src/btc/profile/std/avrc/btc_avrc.c: esp_avrc_tg_register_track_info_callback(); the TG answers GetElementAttributes, GetPlayStatus and InformDisplayCharset from it, and allows the play status, track and position notifications
+include/common/bt_target.h: L2CAP_HIGH_PRI_MIN_XMIT_QUOTA 5 -> 7, so a streaming link can use the 8 ACL buffers of a CYW43438
 
 Added files:
 osi/include/sdkconfig.h: handwritten configuration file based on esp-idf/components/bt/host/bluedroid/Kconfig.in

@@ -9,6 +9,9 @@ on through them; if not, the \dap{} does what
 unplugged. With \setting{Pause and Resume}, playback then resumes when
 the Bluetooth device connects again, or when headphones are plugged in.}
 
+Devices with a display, such as car stereos, can show the title, artist
+and album of the track playing, and how far into it playback is.
+
 While a Bluetooth device plays, the volume controls set its volume, which
 is separate from the headphone volume. It goes from $-127$ to 0, the
 device's maximum. Devices that support it set the volume themselves, and
@@ -41,6 +44,13 @@ the \dap{} connects to the device and bonds with it; pressing
 are back in \setting{Devices}. If pairing fails, a message says so and the
 search goes on.
 
+Headphones and speakers usually pair without any more questions. A device
+with a display shows a number, and the \dap{} asks whether it shows the
+same one: answer \setting{Yes} if it does. A device with a keypad needs the
+number the \dap{} shows typed on it. Older devices are first tried with the
+PIN 0000; if they refuse it, the \dap{} offers to type the device's PIN,
+which its manual gives.
+
 \subsection{Device Menu}
 Selecting a paired device opens a menu titled with its name:
 
@@ -62,6 +72,28 @@ Selecting a paired device opens a menu titled with its name:
     \setting{Bluetooth Settings $\rightarrow$ Device Defaults}.
 \end{description}
 
+\section{Receive Audio}
+Makes the \dap{} a Bluetooth speaker for a phone, tablet or computer: what
+it plays comes out of the \dap{}'s own headphone or line out. If Bluetooth
+is off, you are asked whether to turn it on first. Playback on the \dap{}
+stops and can't be started while this screen is open, and Bluetooth
+headphones are disconnected.
+
+While the screen is open the \dap{} is visible to devices looking for one,
+under the name it shows. To pair a phone with it, look for that name in the
+phone's Bluetooth settings. Both show a number and the \dap{} asks whether
+the phone shows the same one: answer \setting{Yes} if it does. A phone
+paired once can connect again whenever the screen is open.
+
+Once a phone is connected the screen shows its name, whether it is playing
+and, if the phone tells, the title and artist. \ActionWpsPlay{} plays or
+pauses on the phone, \ActionWpsSkipNext{} and \ActionWpsSkipPrev{} skip
+tracks on it, and \ActionWpsVolUp{} and \ActionWpsVolDown{} set the
+\dap{}'s own volume. \ActionWpsBrowse{} leaves the screen: the phone is
+disconnected and the \dap{} goes back to playing
+through Bluetooth headphones, connecting to the ones set to connect
+automatically.
+
 \section{\label{ref:BluetoothOptions}Device Defaults}
 Each device has its own \setting{Options}, set from its menu in
 \setting{Devices}. The options here are what a device uses until they are
@@ -75,13 +107,15 @@ devices.
     answers. The \dap{} also lets these devices connect to it, so a pair
     of headphones switched on later can connect by itself. Choosing a
     device in the \setting{Devices} menu stops the automatic attempts.
-  \item[Codec.] How sound is coded for the device, from plainest to
-    best: \setting{SBC Standard Quality}, \setting{SBC High Quality},
-    \setting{aptX}, \setting{aptX HD} and \setting{LDAC}. All devices
-    support SBC; the others only some. If the device doesn't support the
-    codec chosen here, it gets the best one below it that it supports, so
-    in the end SBC. The codec is used whoever starts the connection: if the
-    device sets up something else, it is asked to switch.
+  \item[Codec.] How sound is coded for the device. \setting{Best
+    Available}, the default, gives the device the best codec it supports.
+    The others set a ceiling, from plainest to best: \setting{SBC Standard
+    Quality}, \setting{SBC High Quality}, \setting{aptX}, \setting{aptX
+    HD} and \setting{LDAC}. All devices support SBC; the others only some.
+    If the device doesn't support the codec chosen, it gets the best one
+    below it that it supports, so in the end SBC. The codec is used whoever
+    starts the connection: if the device sets up something else, it is asked
+    to switch.
 
     \setting{SBC High Quality} uses up to about 330~kbit/s and
     \setting{SBC Standard Quality} up to about 230~kbit/s, which is easier
@@ -91,9 +125,20 @@ devices.
     next time the device connects.
 \end{description}
 
-\note{Whether Bluetooth is on, and the \setting{Device Defaults}, are kept
+\section{Stream at 44.1 kHz}
+If \setting{Yes}, everything sent to a device is resampled to 44.1~kHz, the
+rate of most music. If \setting{No}, a track at another rate the device
+supports, such as 48~kHz, is sent at that rate. The same bitrate at 48~kHz
+takes more packets a second, which a poor radio connection may not carry,
+so \setting{Yes} is the default. A change takes effect the next time a
+device connects.
+
+\note{Whether Bluetooth is on, \setting{Stream at 44.1 kHz} and the
+  \setting{Device Defaults} are kept
   with the other settings in \fname{/.rockbox/config.cfg}. The pairings and
   everything set for each device are kept in
   \fname{/.rockbox/bt\_config.conf}, one section per device. Device
   settings are stored as \config{RbAlias}, \config{RbAutoConnect} and
-  \config{RbCodec} entries next to the pairing keys.}
+  \config{RbCodec} entries next to the pairing keys. If the Bluetooth chip
+  has no address of its own, the \dap{} makes one up when Bluetooth is
+  first turned on and keeps it in \fname{/.rockbox/bt\_addr.txt}.}

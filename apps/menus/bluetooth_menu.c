@@ -28,7 +28,8 @@
  *       Forget                 "Forget X?"
  *       Change Name            keyboard
  *       Options                as below, for this device only
- *   Device Defaults            options for devices not set otherwise
+ *   Receive Audio              the player as a speaker for a phone
+ *   Device Defaults           options for devices not set otherwise
  *     Automatically Connect
  *     Codec
  */
@@ -50,6 +51,8 @@
 #include "string-extra.h"
 #include "exported_menus.h"
 #include "misc.h"
+#include "audio.h"
+#include "screens.h"
 #include "bluetooth/bt.h"
 
 /* The device the device menu works on */
@@ -94,6 +97,7 @@ static int bt_dev_codec(void)
         [BT_CODEC_APTX] = { STR(LANG_BLUETOOTH_CODEC_APTX) },
         [BT_CODEC_APTX_HD] = { STR(LANG_BLUETOOTH_CODEC_APTX_HD) },
         [BT_CODEC_LDAC] = { STR(LANG_BLUETOOTH_CODEC_LDAC) },
+        [BT_CODEC_BEST] = { STR(LANG_BLUETOOTH_CODEC_BEST) },
     };
     int val = bt_get_option(cur_dev.addr, BT_OPT_CODEC);
     int old = val;
@@ -224,26 +228,85 @@ static const struct menu_item_ex bt_device_menu = {
 /***********************************/
 /*    PAIRING                      */
 
-/* Wait for the bond; the user may give up */
-static bool bt_pair_wait(const uint8_t *addr)
+/* Answer BT_PAIR_CONFIRM with what the user says */
+static void bt_pair_ask(void)
 {
-    splash(0, ID2P(LANG_BLUETOOTH_PAIRING));
+    char name[BT_NAME_LEN], buf[BT_NAME_LEN + 48];
 
-    while (bt_pair_state() == BT_PAIR_BUSY)
+    bt_pair_peer_name(name, sizeof(name));
+    snprintf(buf, sizeof(buf), str(LANG_BLUETOOTH_PAIR_CONFIRM),
+             name, (unsigned long)bt_pair_code());
+    bt_pair_confirm(yesno_pop(buf));
+}
+
+/* Wait for the bond, showing or asking for what the device wants
+ * compared or typed; the user may give up */
+static enum bt_pair_state bt_pair_wait(const struct bt_device *dev)
+{
+    char buf[BT_NAME_LEN + 48];
+    enum bt_pair_state shown = BT_PAIR_IDLE;
+
+    for (;;)
     {
+        enum bt_pair_state state = bt_pair_state();
+
+        if (state == BT_PAIR_CONFIRM)
+        {
+            bt_pair_ask();
+            shown = BT_PAIR_IDLE; /* the popup covered the splash */
+            continue;
+        }
+        if (state != BT_PAIR_BUSY && state != BT_PAIR_PASSKEY)
+            return state;
+
+        if (state != shown)
+        {
+            shown = state;
+            if (state == BT_PAIR_PASSKEY)
+            {
+                snprintf(buf, sizeof(buf), str(LANG_BLUETOOTH_PAIR_PASSKEY),
+                         (unsigned long)bt_pair_code(), dev->name);
+                splash(0, buf);
+            }
+            else
+                splash(0, ID2P(LANG_BLUETOOTH_PAIRING));
+        }
+
         int action = get_action(CONTEXT_STD, HZ/10);
         if (action == ACTION_STD_CANCEL ||
             default_event_handler(action) == SYS_USB_CONNECTED)
         {
-            bt_disconnect(addr);
-            return false;
+            bt_disconnect(dev->addr);
+            return BT_PAIR_IDLE;
         }
     }
+}
 
-    if (bt_pair_state() == BT_PAIR_DONE)
+/* Pair, then once more with the PIN the user types if the device turned
+ * the default one down */
+static bool bt_pair_device(const struct bt_device *dev)
+{
+    char buf[BT_NAME_LEN + 32];
+    char pin[17];
+
+    if (!bt_pair(dev->addr, NULL))
+        return false;
+
+    enum bt_pair_state state = bt_pair_wait(dev);
+    while (state == BT_PAIR_FAILED && bt_pair_pin_asked())
+    {
+        snprintf(buf, sizeof(buf), str(LANG_BLUETOOTH_PAIR_PIN), dev->name);
+        pin[0] = '\0';
+        if (!yesno_pop(buf) || kbd_input(pin, sizeof(pin), NULL) < 0 ||
+            !pin[0] || !bt_pair(dev->addr, pin))
+            return false;
+        state = bt_pair_wait(dev);
+    }
+
+    if (state == BT_PAIR_DONE)
         return true;
-
-    splash(HZ*2, ID2P(LANG_BLUETOOTH_PAIRING_FAILED));
+    if (state == BT_PAIR_FAILED)
+        splash(HZ*2, ID2P(LANG_BLUETOOTH_PAIRING_FAILED));
     return false;
 }
 
@@ -279,7 +342,7 @@ static int bt_found_action(int action, struct gui_synclist *lists)
             if (!yesno_pop(buf))
                 return ACTION_REDRAW;
 
-            if (bt_pair(dev.addr) && bt_pair_wait(dev.addr))
+            if (bt_pair_device(&dev))
                 return ACTION_STD_CANCEL; /* back to the devices */
 
             bt_discovery_start();
@@ -293,6 +356,14 @@ static void bt_pair_new_device(void)
 {
     struct simplelist_info info;
 
+    /* Scanning takes most of the radio: a stream to a device would cut
+     * out for as long as the list is open */
+    int st = audio_status();
+    bool paused = bt_is_connected() && (st & AUDIO_STATUS_PLAY) &&
+                  !(st & AUDIO_STATUS_PAUSE);
+    if (paused)
+        audio_pause();
+
     bt_discovery_start();
 
     simplelist_info_init(&info, str(LANG_BLUETOOTH_PAIR_NEW),
@@ -302,6 +373,8 @@ static void bt_pair_new_device(void)
     simplelist_show_list(&info);
 
     bt_discovery_stop();
+    if (paused)
+        audio_resume();
 }
 
 /***********************************/
@@ -371,11 +444,125 @@ static int bt_devices_screen(void)
 }
 
 /***********************************/
+/*    RECEIVING                    */
+
+static void bt_receive_draw(void)
+{
+    struct bt_receive_status st;
+    char name[BT_NAME_LEN], line[BT_NAME_LEN + 32];
+    bool connected = bt_connected_device(name, sizeof(name));
+
+    bt_receive_status(&st);
+
+    FOR_NB_SCREENS(i)
+    {
+        struct screen *s = &screens[i];
+        int y = 0;
+
+        s->set_viewport(NULL);
+        s->clear_display();
+        s->puts(0, y++, str(LANG_BLUETOOTH_RECEIVE));
+        y++;
+        if (!connected)
+        {
+            s->puts(0, y++, str(LANG_BLUETOOTH_RECEIVE_WAITING));
+            snprintf(line, sizeof(line), str(LANG_BLUETOOTH_RECEIVE_VISIBLE),
+                     bt_local_name());
+            s->puts(0, y++, line);
+        }
+        else
+        {
+            s->puts(0, y++, name);
+            s->puts(0, y++, str(st.streaming ? LANG_BLUETOOTH_RECEIVE_PLAYING
+                                             : LANG_BLUETOOTH_RECEIVE_PAUSED));
+            y++;
+            if (st.title[0])
+                s->puts(0, y++, st.title);
+            if (st.artist[0])
+                s->puts(0, y++, st.artist);
+        }
+        s->update();
+    }
+}
+
+/* The player as a Bluetooth speaker until the user leaves */
+static int bt_receive_screen(void)
+{
+    bool done = false;
+
+    if (!bt_ensure_enabled())
+        return 0;
+
+    if (audio_status() & AUDIO_STATUS_PLAY)
+        audio_stop();
+    /* switching takes a moment, a link may have to close first */
+    splash(0, ID2P(LANG_BLUETOOTH_RECEIVE_STARTING));
+    if (!bt_receive_start())
+    {
+        splash(HZ*2, ID2P(LANG_BLUETOOTH_RECEIVE_FAILED));
+        return 0;
+    }
+
+    while (!done)
+    {
+        /* a lost controller restarts the stack, back in the source role */
+        if (!bt_receiving())
+            break;
+
+        /* a phone pairing with us */
+        if (bt_pair_state() == BT_PAIR_CONFIRM)
+        {
+            bt_pair_ask();
+            continue;
+        }
+
+        bt_receive_draw();
+
+        int action = get_action(CONTEXT_WPS, HZ/2);
+        switch (action)
+        {
+            case ACTION_WPS_PLAY:
+                bt_receive_control(BT_RECEIVE_PLAY_PAUSE);
+                break;
+            case ACTION_WPS_SKIPNEXT:
+                bt_receive_control(BT_RECEIVE_NEXT);
+                break;
+            case ACTION_WPS_SKIPPREV:
+                bt_receive_control(BT_RECEIVE_PREV);
+                break;
+            case ACTION_WPS_VOLUP:
+                adjust_volume(1);
+                break;
+            case ACTION_WPS_VOLDOWN:
+                adjust_volume(-1);
+                break;
+            case ACTION_WPS_BROWSE:
+            case ACTION_WPS_STOP:
+            case ACTION_STD_CANCEL:
+                done = true;
+                break;
+            case ACTION_NONE:
+            case ACTION_REDRAW:
+                break;
+            default:
+                if (default_event_handler(action) == SYS_USB_CONNECTED)
+                    done = true;
+                break;
+        }
+    }
+
+    bt_receive_stop();
+    return 0;
+}
+
+/***********************************/
 /*    BLUETOOTH SETTINGS MENU      */
 
 MENUITEM_SETTING(bt_enable_item, &global_settings.bluetooth, NULL);
 MENUITEM_FUNCTION(bt_devices_item, 0, ID2P(LANG_BLUETOOTH_DEVICES),
                   bt_devices_screen, NULL, Icon_Submenu);
+MENUITEM_FUNCTION(bt_receive_item, 0, ID2P(LANG_BLUETOOTH_RECEIVE),
+                  bt_receive_screen, NULL, Icon_Audio);
 
 /* The defaults for devices not set otherwise */
 MENUITEM_SETTING(bt_auto_connect_item,
@@ -385,6 +572,10 @@ MENUITEM_SETTING(bt_codec_item, &global_settings.bluetooth_codec, NULL);
 MAKE_MENU(bt_defaults_menu, ID2P(LANG_BLUETOOTH_DEFAULTS), NULL, Icon_Submenu,
           &bt_auto_connect_item, &bt_codec_item);
 
+MENUITEM_SETTING(bt_fixed_rate_item, &global_settings.bluetooth_fixed_rate,
+                 NULL);
+
 MAKE_MENU(bluetooth_settings_menu, ID2P(LANG_BLUETOOTH_SETTINGS), NULL,
           Icon_Bluetooth,
-          &bt_enable_item, &bt_devices_item, &bt_defaults_menu);
+          &bt_enable_item, &bt_devices_item, &bt_receive_item,
+          &bt_defaults_menu, &bt_fixed_rate_item);

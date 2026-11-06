@@ -109,6 +109,10 @@
 #include "piezo.h"
 #endif
 
+#ifdef HAVE_BLUETOOTH
+#include "bluetooth/bt.h"
+#endif
+
 /* units used with output_dyn_value */
 const unsigned char * const byte_units[] =
 {
@@ -748,6 +752,16 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
             hp_unplug_change(true);
             return SYS_BLUETOOTH_SINK_READY;
 #endif
+#endif
+#ifdef HAVE_BLUETOOTH
+        /* the controller's packet stream was lost */
+        case SYS_BLUETOOTH_HCI_FAILED:
+            bt_restart();
+            return SYS_BLUETOOTH_HCI_FAILED;
+
+        case SYS_BLUETOOTH_LOG_SAVE:
+            bt_log_autosave();
+            return SYS_BLUETOOTH_LOG_SAVE;
 #endif
 #ifdef HAVE_LINEOUT_DETECTION
         case SYS_LINEOUT_PLUGGED:

@@ -1602,7 +1602,7 @@
 
 /* Minimum number of ACL credit for high priority link */
 #ifndef L2CAP_HIGH_PRI_MIN_XMIT_QUOTA
-#define L2CAP_HIGH_PRI_MIN_XMIT_QUOTA       5
+#define L2CAP_HIGH_PRI_MIN_XMIT_QUOTA       7
 #endif
 
 /* used for monitoring HCI ACL credit management */

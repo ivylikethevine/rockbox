@@ -844,6 +844,37 @@ esp_err_t esp_avrc_tg_send_rn_rsp(esp_avrc_rn_event_ids_t event_id, esp_avrc_rn_
                                   esp_avrc_rn_param_t *param);
 
 /**
+ * @brief           Track information for the remote AVRCP controller (Rockbox addition). Strings
+ *                  are UTF-8, NULL or empty for none, and must stay valid until the next call.
+ */
+typedef struct {
+    const char *title;
+    const char *artist;
+    const char *album;
+    const char *genre;
+    uint32_t track_num;                      /*!< 0 if unknown */
+    uint32_t length_ms;                      /*!< 0xFFFFFFFF if unknown */
+    uint32_t position_ms;
+    esp_avrc_playback_stat_t status;
+} esp_avrc_tg_track_info_t;
+
+/**
+ * @brief           Fills in the track information, called on the BTC task
+ */
+typedef void (* esp_avrc_tg_track_info_cb_t)(esp_avrc_tg_track_info_t *info);
+
+/**
+ *
+ * @brief           Register the function the target answers GetElementAttributes and
+ *                  GetPlayStatus from (Rockbox addition). Without one they are rejected.
+ *                  NULL unregisters it.
+ *
+ * @return          ESP_OK
+ *
+ */
+esp_err_t esp_avrc_tg_register_track_info_callback(esp_avrc_tg_track_info_cb_t callback);
+
+/**
  *
  * @brief           Start the process to establish OBEX connection used in Cover Art Client. Once the operation done,
  *                  ESP_AVRC_CT_COVER_ART_STATE_EVT will come, operation result can be found in event param. This API

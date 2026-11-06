@@ -646,6 +646,16 @@ esp_err_t esp_avrc_tg_send_rn_rsp(esp_avrc_rn_event_ids_t event_id, esp_avrc_rn_
 
 }
 
+/* btc_avrc.c */
+void btc_avrc_tg_set_track_info_cb(esp_avrc_tg_track_info_cb_t callback);
+
+esp_err_t esp_avrc_tg_register_track_info_callback(esp_avrc_tg_track_info_cb_t callback)
+{
+    /* read on the BTC task, which only ever reads it whole */
+    btc_avrc_tg_set_track_info_cb(callback);
+    return ESP_OK;
+}
+
 esp_err_t esp_avrc_get_profile_status(esp_avrc_profile_status_t *profile_status)
 {
     if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {

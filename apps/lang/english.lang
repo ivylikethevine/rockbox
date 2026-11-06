@@ -17606,6 +17606,23 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_BLUETOOTH_CODEC_BEST
+  desc: bluetooth codec choice, the best one the device supports
+  user: core
+  <source>
+    *: none
+    bluetooth: "Best Available"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Best Available"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Best available"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_VOLUME_LIMIT_SINK
   desc: splash when the volume limit can't be set while Bluetooth plays
   user: core
@@ -17773,5 +17790,192 @@
   <voice>
     *: none
     bluetooth: "Device Defaults"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIR_CONFIRM
+  desc: bluetooth pairing, compare the number the device shows. %s is the device name, %06lu the number
+  user: core
+  <source>
+    *: none
+    bluetooth: "Does %s show %06lu?"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Does %s show %06lu?"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Does the device show this number?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIR_PASSKEY
+  desc: bluetooth pairing, the code to type on the device. %06lu is the code, %s the device name
+  user: core
+  <source>
+    *: none
+    bluetooth: "Type %06lu on %s"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Type %06lu on %s"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Type the code on the device"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_PAIR_PIN
+  desc: bluetooth pairing failed with the default PIN, offer to type the device's. %s is the device name
+  user: core
+  <source>
+    *: none
+    bluetooth: "Enter the PIN for %s?"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Enter the PIN for %s?"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Enter the device's PIN?"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE
+  desc: in bluetooth settings menu, the player as a bluetooth speaker for a phone
+  user: core
+  <source>
+    *: none
+    bluetooth: "Receive Audio"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Receive Audio"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Receive Audio"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE_WAITING
+  desc: receive audio screen, no phone connected yet
+  user: core
+  <source>
+    *: none
+    bluetooth: "Waiting for a phone"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Waiting for a phone"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Waiting for a phone"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE_VISIBLE
+  desc: receive audio screen, the name phones see the player as. %s is the name
+  user: core
+  <source>
+    *: none
+    bluetooth: "Visible as %s"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Visible as %s"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Visible to phones"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE_PLAYING
+  desc: receive audio screen, the phone is sending audio
+  user: core
+  <source>
+    *: none
+    bluetooth: "Playing"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Playing"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Playing"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE_PAUSED
+  desc: receive audio screen, the phone is connected but sends nothing
+  user: core
+  <source>
+    *: none
+    bluetooth: "Paused"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Paused"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Paused"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE_FAILED
+  desc: splash when the player could not switch to receiving audio
+  user: core
+  <source>
+    *: none
+    bluetooth: "Can't receive audio"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Can't receive audio"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Can't receive audio"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_RECEIVE_STARTING
+  desc: splash while the player switches to receiving audio over bluetooth
+  user: core
+  <source>
+    *: none
+    bluetooth: "Switching to receiving..."
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Switching to receiving..."
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Switching to receiving"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_BLUETOOTH_FIXED_RATE
+  desc: in bluetooth settings menu
+  user: core
+  <source>
+    *: none
+    bluetooth: "Stream at 44.1 kHz"
+  </source>
+  <dest>
+    *: none
+    bluetooth: "Stream at 44.1 kHz"
+  </dest>
+  <voice>
+    *: none
+    bluetooth: "Stream at 44.1 kilohertz"
   </voice>
 </phrase>

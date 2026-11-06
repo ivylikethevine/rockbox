@@ -51,7 +51,7 @@
 #define PRIORITY_REALTIME_3      3
 #define PRIORITY_REALTIME_4      4
 #define PRIORITY_REALTIME        4   /* Lowest realtime range */
-#define PRIORITY_BLUETOOTH       14  /* Bluetooth threads */
+#define PRIORITY_BLUETOOTH       4   /* Bluetooth threads, above a boosted codec */
 #define PRIORITY_BUFFERING       15  /* Codec buffering thread */
 #define PRIORITY_USER_INTERFACE  16  /* For most UI thrads */
 #define PRIORITY_RECORDING       16  /* Recording thread */

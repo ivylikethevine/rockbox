@@ -12,6 +12,7 @@
  *
  *****************************************************************************/
 #include "common/bt_target.h"
+#include <stdio.h>
 #include <string.h>
 #include "bta/bta_api.h"
 #include "bta/bta_av_api.h"
@@ -77,7 +78,7 @@ const static uint16_t cs_psth_dft_supported_cmd[8] = {0};
 static uint16_t s_psth_supported_cmd[8];
 
 const static uint16_t cs_rn_allowed_evt = \
-        0x2000; /* bit mask: 0=rsvd, 1=play_status, 2=track_chg, 3=reached_end,
+        0x2026; /* bit mask: 0=rsvd, 1=play_status, 2=track_chg, 3=reached_end,
                              4=reached_start, 5=pos_chg, 6=batt_status, 7=sys_status_chg,
                              8=player_app_setting, 9=now_playing_content, 10=avail_players, 11=addressed_player,
                              12=UID, 13=volume_chg */
@@ -790,6 +791,111 @@ static void handle_rc_get_play_status_rsp(tAVRC_GET_PLAY_STATUS_RSP *rsp)
     btc_avrc_ct_cb_to_app(ESP_AVRC_CT_PLAY_STATUS_RSP_EVT, &param);
 }
 
+/* The app's track information, for GetElementAttributes and GetPlayStatus */
+static esp_avrc_tg_track_info_cb_t s_track_info_cb;
+
+void btc_avrc_tg_set_track_info_cb(esp_avrc_tg_track_info_cb_t callback)
+{
+    s_track_info_cb = callback;
+}
+
+/* Attributes are cut to keep the whole response in one packet */
+#define TRACK_ATTR_MAX_LEN  100
+
+static bool tg_attr(tAVRC_ATTR_ENTRY *e, UINT32 attr_id, const char *s)
+{
+    size_t len = s ? strlen(s) : 0;
+    if (len == 0) {
+        return false;
+    }
+    if (len > TRACK_ATTR_MAX_LEN) {
+        /* at a UTF-8 character boundary */
+        len = TRACK_ATTR_MAX_LEN;
+        while (len > 0 && (s[len] & 0xc0) == 0x80) {
+            len--;
+        }
+    }
+    e->attr_id = attr_id;
+    e->name.charset_id = AVRC_CHARSET_ID_UTF8;
+    e->name.str_len = len;
+    e->name.p_str = (UINT8 *)s;
+    return true;
+}
+
+static void get_track_info(esp_avrc_tg_track_info_t *info)
+{
+    memset(info, 0, sizeof(*info));
+    info->length_ms = 0xffffffff;
+    s_track_info_cb(info);
+}
+
+static void handle_get_play_status_cmd(UINT8 label, UINT8 ctype)
+{
+    esp_avrc_tg_track_info_t info;
+    tAVRC_RESPONSE avrc_rsp;
+
+    get_track_info(&info);
+
+    memset(&avrc_rsp, 0, sizeof(avrc_rsp));
+    avrc_rsp.get_play_status.pdu = AVRC_PDU_GET_PLAY_STATUS;
+    avrc_rsp.get_play_status.opcode = opcode_from_pdu(AVRC_PDU_GET_PLAY_STATUS);
+    avrc_rsp.get_play_status.status = AVRC_STS_NO_ERROR;
+    avrc_rsp.get_play_status.song_len = info.length_ms;
+    avrc_rsp.get_play_status.song_pos = info.position_ms;
+    avrc_rsp.get_play_status.play_status = info.status;
+    send_metamsg_rsp(btc_rc_cb.rc_handle, label, ctype, &avrc_rsp);
+}
+
+static void handle_get_elem_attrs_cmd(tAVRC_GET_ELEM_ATTRS_CMD *cmd, UINT8 label,
+                                      UINT8 ctype)
+{
+    esp_avrc_tg_track_info_t info;
+    tAVRC_ATTR_ENTRY attrs[AVRC_MAX_ELEM_ATTR_SIZE];
+    tAVRC_RESPONSE avrc_rsp;
+    char track_num[12], length[12];
+    UINT8 num = 0;
+
+    get_track_info(&info);
+
+    track_num[0] = length[0] = '\0';
+    if (info.track_num) {
+        snprintf(track_num, sizeof(track_num), "%lu", (unsigned long)info.track_num);
+    }
+    if (info.length_ms != 0xffffffff) {
+        snprintf(length, sizeof(length), "%lu", (unsigned long)info.length_ms);
+    }
+
+    /* none asked for means all of them */
+    UINT8 count = cmd->num_attr ? cmd->num_attr : AVRC_MEDIA_ATTR_ID_PLAYING_TIME;
+    if (count > AVRC_MAX_ELEM_ATTR_SIZE) {
+        count = AVRC_MAX_ELEM_ATTR_SIZE;
+    }
+    for (UINT8 i = 0; i < count; i++) {
+        UINT32 id = cmd->num_attr ? cmd->attrs[i] : (UINT32)i + 1;
+        const char *s;
+        switch (id) {
+        case AVRC_MEDIA_ATTR_ID_TITLE:        s = info.title; break;
+        case AVRC_MEDIA_ATTR_ID_ARTIST:       s = info.artist; break;
+        case AVRC_MEDIA_ATTR_ID_ALBUM:        s = info.album; break;
+        case AVRC_MEDIA_ATTR_ID_TRACK_NUM:    s = track_num; break;
+        case AVRC_MEDIA_ATTR_ID_GENRE:        s = info.genre; break;
+        case AVRC_MEDIA_ATTR_ID_PLAYING_TIME: s = length; break;
+        default:                              s = NULL; break;
+        }
+        if (tg_attr(&attrs[num], id, s)) {
+            num++;
+        }
+    }
+
+    memset(&avrc_rsp, 0, sizeof(avrc_rsp));
+    avrc_rsp.get_elem_attrs.pdu = AVRC_PDU_GET_ELEMENT_ATTR;
+    avrc_rsp.get_elem_attrs.opcode = opcode_from_pdu(AVRC_PDU_GET_ELEMENT_ATTR);
+    avrc_rsp.get_elem_attrs.status = AVRC_STS_NO_ERROR;
+    avrc_rsp.get_elem_attrs.num_attr = num;
+    avrc_rsp.get_elem_attrs.p_attrs = attrs;
+    send_metamsg_rsp(btc_rc_cb.rc_handle, label, ctype, &avrc_rsp);
+}
+
 /***************************************************************************
  *  Function       handle_rc_metamsg_cmd
  *
@@ -884,9 +990,31 @@ static void btc_rc_upstreams_evt(UINT16 event, tAVRC_COMMAND *pavrc_cmd, UINT8 c
         btc_avrc_tg_cb_to_app(ESP_AVRC_TG_SET_PLAYER_APP_VALUE_EVT, &param);
     }
     break;
+    /* without the app's track information these are rejected below */
     case AVRC_PDU_GET_PLAY_STATUS:
+        if (s_track_info_cb) {
+            handle_get_play_status_cmd(label, ctype);
+            break;
+        }
+        /* fall through */
     case AVRC_PDU_GET_ELEMENT_ATTR:
+        if (s_track_info_cb) {
+            handle_get_elem_attrs_cmd(&pavrc_cmd->get_elem_attrs, label, ctype);
+            break;
+        }
+        /* fall through */
     case AVRC_PDU_INFORM_DISPLAY_CHARSET:
+        if (s_track_info_cb) {
+            /* attributes always go as UTF-8, which every CT takes */
+            tAVRC_RESPONSE avrc_rsp;
+            memset(&avrc_rsp, 0, sizeof(avrc_rsp));
+            avrc_rsp.inform_charset.pdu = AVRC_PDU_INFORM_DISPLAY_CHARSET;
+            avrc_rsp.inform_charset.opcode = opcode_from_pdu(AVRC_PDU_INFORM_DISPLAY_CHARSET);
+            avrc_rsp.inform_charset.status = AVRC_STS_NO_ERROR;
+            send_metamsg_rsp(btc_rc_cb.rc_handle, label, ctype, &avrc_rsp);
+            break;
+        }
+        /* fall through */
     //todo: check the valid response for these PDUs
     case AVRC_PDU_LIST_PLAYER_APP_ATTR:
     case AVRC_PDU_LIST_PLAYER_APP_VALUES:

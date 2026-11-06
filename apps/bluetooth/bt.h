@@ -26,6 +26,7 @@
  * BUTTON_REDRAW is posted, so an open list picks it up. */
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define BT_ADDR_LEN     6
@@ -49,6 +50,8 @@ enum bt_conn_state {
 enum bt_pair_state {
     BT_PAIR_IDLE,
     BT_PAIR_BUSY,
+    BT_PAIR_CONFIRM,    /* the user compares bt_pair_code() with the device's */
+    BT_PAIR_PASSKEY,    /* the user types bt_pair_code() on the device */
     BT_PAIR_DONE,
     BT_PAIR_FAILED,
 };
@@ -57,6 +60,11 @@ enum bt_pair_state {
 bool bt_enable(void);
 void bt_disable(void);
 bool bt_is_enabled(void);
+/* After the controller was lost (SYS_BLUETOOTH_HCI_FAILED): down and up
+ * again, as when turning the setting off and on */
+void bt_restart(void);
+/* Writes the event log if it has news and the stream is stopped */
+void bt_log_autosave(void);
 /* The Bluetooth setting: on the way up shows progress, and if the stack
  * fails to start says so and turns the setting back off */
 void bt_set_enabled(bool on);
@@ -72,15 +80,54 @@ void bt_discovery_stop(void);
 int bt_found_count(void);
 bool bt_found_get(int idx, struct bt_device *dev);
 
-/* Pair with a found device by connecting to it */
-bool bt_pair(const uint8_t *addr);
+/* Pair with a found device by connecting to it. 'pin' answers a legacy
+ * PIN request, NULL for 0000. */
+bool bt_pair(const uint8_t *addr, const char *pin);
 enum bt_pair_state bt_pair_state(void);
+/* The number for BT_PAIR_CONFIRM and BT_PAIR_PASSKEY */
+uint32_t bt_pair_code(void);
+/* The answer to BT_PAIR_CONFIRM */
+void bt_pair_confirm(bool same);
+/* The device asked for a legacy PIN during the last pairing */
+bool bt_pair_pin_asked(void);
 
 /* One A2DP sink at a time: connecting to another device drops the
  * current one first */
 bool bt_connect(const uint8_t *addr);
 bool bt_disconnect(const uint8_t *addr);
 enum bt_conn_state bt_conn_state(const uint8_t *addr);
+
+/* Receiving: the player as a Bluetooth speaker for a phone. While on, the
+ * stack is in the A2DP sink role instead of the source one, the player is
+ * visible to devices looking for one, and a device pairing with it is put
+ * to the user as BT_PAIR_CONFIRM. Playback doesn't start meanwhile. */
+bool bt_receive_start(void);
+void bt_receive_stop(void);
+bool bt_receiving(void);
+
+struct bt_receive_status {
+    bool streaming;
+    char title[96];
+    char artist[96];
+};
+void bt_receive_status(struct bt_receive_status *st);
+
+enum bt_receive_cmd {
+    BT_RECEIVE_PLAY_PAUSE,
+    BT_RECEIVE_NEXT,
+    BT_RECEIVE_PREV,
+};
+/* Sent to the phone over AVRCP */
+void bt_receive_control(enum bt_receive_cmd cmd);
+
+/* The name the player is visible as */
+const char *bt_local_name(void);
+
+/* The device audio goes to or comes from, false if none */
+bool bt_is_connected(void);
+bool bt_connected_device(char *buf, size_t len);
+/* The device being paired with, for BT_PAIR_CONFIRM */
+void bt_pair_peer_name(char *buf, size_t len);
 
 /* Remove the bond and everything kept for the device */
 bool bt_forget(const uint8_t *addr);
@@ -107,6 +154,7 @@ enum bt_codec {
     BT_CODEC_APTX,
     BT_CODEC_APTX_HD,
     BT_CODEC_LDAC,
+    BT_CODEC_BEST,          /* the best the device supports, the default */
     BT_NUM_CODECS
 };
 

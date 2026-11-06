@@ -149,6 +149,32 @@ void audiohw_postinit(void)
 
 }
 
+#ifdef HAVE_AUDIOHW_STANDBY
+/* While another PCM sink plays: mute and shut the headphone amp down in
+ * the order of audiohw_close(), and back up as audiohw_init() does. The
+ * DAC stays powered, so its registers and volume need no restoring. */
+void audiohw_standby(bool standby)
+{
+    static bool in_standby = false;
+    if (standby == in_standby)
+        return;
+    in_standby = standby;
+
+    if (standby)
+    {
+        gpio_set_level(GPIO_STEREOSW_MUTE, 1);
+        mdelay(10);
+        gpio_set_level(GPIO_HPAMP_SHDN, 0);
+    }
+    else
+    {
+        gpio_set_level(GPIO_HPAMP_SHDN, 1);
+        mdelay(10);
+        gpio_set_level(GPIO_STEREOSW_MUTE, 0);
+    }
+}
+#endif
+
 void audiohw_close(void)
 {
     /* mute - attempt to make power-off pop-free */
