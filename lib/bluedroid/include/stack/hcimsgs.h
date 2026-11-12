@@ -680,6 +680,7 @@ BOOLEAN btsnd_hcic_write_cur_iac_lap (UINT8 num_cur_iac,
 
 BOOLEAN btsnd_hcic_get_link_quality (UINT16 handle);            /* Get Link Quality */
 BOOLEAN btsnd_hcic_read_rssi (UINT16 handle);                   /* Read RSSI */
+BOOLEAN btsnd_hcic_read_afh_ch_map (UINT16 handle);             /* Read AFH Channel Map */
 BOOLEAN btsnd_hcic_enable_test_mode (void);                     /* Enable Device Under Test Mode */
 BOOLEAN btsnd_hcic_write_pagescan_type(UINT8 type);             /* Write Page Scan Type */
 BOOLEAN btsnd_hcic_write_inqscan_type(UINT8 type);              /* Write Inquiry Scan Type */

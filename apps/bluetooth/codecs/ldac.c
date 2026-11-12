@@ -310,7 +310,7 @@ int a2dp_vendor_ldac_get_effective_frame_size(void) { return a2dP_ldac_encoder_c
 
 void a2dp_vendor_ldac_send_frames(void) {
   a2dP_ldac_encoder_cb.TxQueueLength = esp_a2d_source_audio_queue_len();
-  uint64_t timestamp_us = ((uint64_t) current_tick) * (1000000 / HZ);
+  uint64_t timestamp_us = bt_time_us();
   uint8_t nb_frame = 0;
   uint8_t nb_iterations = 0;
 

@@ -17,6 +17,9 @@ struct a2dp_codec {
     void (*feeding_reset)(void);
     void (*feeding_flush)(void);
     uint64_t (*get_period)(void);
+    /* The media tick in microseconds where it isn't whole milliseconds,
+     * NULL to use get_period() */
+    uint32_t (*get_period_us)(void);
     void (*tick)(void);
     void (*deinit)(void);
     void (*set_freq)(uint32_t freq, esp_a2d_mcc_t *pref_mcc);

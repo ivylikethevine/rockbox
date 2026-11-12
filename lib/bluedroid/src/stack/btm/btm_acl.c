@@ -2154,6 +2154,10 @@ tBTM_STATUS BTM_ReadRSSI (BD_ADDR remote_bda, tBT_TRANSPORT transport, tBTM_CMPL
             (*p_cb)(&result);
             return (BTM_NO_RESOURCES);
         } else {
+            /* Rockbox: the channel map along with it, for bt_stats */
+            if (transport == BT_TRANSPORT_BR_EDR) {
+                btsnd_hcic_read_afh_ch_map (p->hci_handle);
+            }
             return (BTM_CMD_STARTED);
         }
     }

@@ -37,6 +37,7 @@
 #include "metadata.h"
 #include "pcmbuf.h"
 #include "timeout.h"
+#include "timefuncs.h"
 #include "osi/alarm.h"
 #include "osi/bt_stats.h"
 #include "oi_codec_sbc.h"
@@ -141,6 +142,23 @@ void bt_tune_read(void)
         close(fd);
     }
 }
+
+/* AFH: the channels the link last hopped on, kept between connections. A
+ * new link starts on all 79 and the chip takes a while to find the ones
+ * that are taken, by Wi-Fi above all. Each connection starts with the saved
+ * map's unused channels marked bad for the chip, which hands the choice back
+ * to the chip once the link has streamed long enough to learn for itself.
+ * Only maps read after that are saved, so a seed never saves itself. */
+#define BT_AFH_FILE      ROCKBOX_DIR "/bt_afh.txt"
+#define BT_AFH_MAX_AGE   (24 * 60 * 60) /* seconds a saved map is used */
+#define BT_AFH_MIN_CHANS 20             /* the fewest AFH allows */
+#define BT_AFH_HOLD_S    60             /* streaming before the chip decides */
+
+static int afh_seed_chans;      /* channels the seed left, 0 if none */
+static bool afh_held;           /* the seed is in force */
+static unsigned afh_stream_s;   /* seconds streamed since the seed */
+static uint32_t afh_learn_from; /* bt_stats.afh_reads before learned maps */
+static uint32_t afh_saved_reads;
 
 /* Event log: what happened around an audible gap. Kept in RAM, as writing to
  * storage while streaming would disturb what it measures, and saved to a file
@@ -356,6 +374,12 @@ static const char *bt_stats_line(int line, char *buf, size_t len)
                  HCI_EDR_ACL_3MPS_SUPPORTED(f) ? 1 : 0);
         break;
     }
+    /* Channels the link hops on now, what the saved map left, and whether
+     * that seed still holds */
+    case 43: snprintf(buf, len, "afh %u seed %d %s", s->afh_chans,
+                      afh_seed_chans, afh_held ? "held" : "free"); break;
+    /* The chip's sleep clock, 32768 when it is right */
+    case 44: snprintf(buf, len, "lpo %luHz", s->lpo_hz); break;
     default:
         return NULL;
     }
@@ -363,7 +387,7 @@ static const char *bt_stats_line(int line, char *buf, size_t len)
     return buf;
 }
 
-#define BT_INFO_STATS_ITEMS 43
+#define BT_INFO_STATS_ITEMS 45
 
 static const char *codec_name(tA2D_CODEC type)
 {
@@ -516,12 +540,103 @@ static void bt_log_save(void)
 
 static esp_a2d_audio_state_t bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
 
+/* The channel map, see the AFH section above */
+static int afh_count(const uint8_t *map)
+{
+    int n = 0;
+    for (int i = 0; i < 79; i++)
+        n += (map[i / 8] >> (i % 8)) & 1;
+    return n;
+}
+
+static bool afh_load(uint8_t *map)
+{
+    char line[48];
+    int fd = open(BT_AFH_FILE, O_RDONLY);
+    if (fd < 0)
+        return false;
+    int n = read_line(fd, line, sizeof(line));
+    close(fd);
+    if (n <= 0)
+        return false;
+
+    char *p;
+    unsigned long saved = strtoul(line, &p, 10);
+    unsigned long now = mktime(get_time());
+    if (*p != ' ' || now < saved || now - saved > BT_AFH_MAX_AGE)
+        return false;
+    for (int i = 0; i < 10; i++) {
+        char hex[3] = { p[1 + 2 * i], p[2 + 2 * i], '\0' };
+        char *end;
+        map[i] = strtoul(hex, &end, 16);
+        if (end != &hex[2])
+            return false;
+    }
+    return true;
+}
+
+static void afh_save(void)
+{
+    const uint8_t *m = bt_stats.afh_map;
+    int fd = open(BT_AFH_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0)
+        return;
+    fdprintf(fd, "%lu %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+             (unsigned long)mktime(get_time()),
+             m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9]);
+    close(fd);
+    afh_saved_reads = bt_stats.afh_reads;
+}
+
+/* On connecting: seed the chip with the saved map */
+static void afh_seed(void)
+{
+    uint8_t map[10];
+
+    afh_seed_chans = 0;
+    afh_held = false;
+    afh_stream_s = 0;
+    afh_learn_from = bt_stats.afh_reads;
+
+    if (!afh_load(map))
+        return;
+    map[9] &= 0x7f;
+    int chans = afh_count(map);
+    if (chans < BT_AFH_MIN_CHANS || chans >= 79)
+        return;
+    if (esp_bt_gap_set_afh_channels(map) != ESP_OK)
+        return;
+
+    afh_seed_chans = chans;
+    afh_held = true;
+    afh_learn_from = UINT32_MAX;
+}
+
+/* Once a second while streaming: hand the choice back to the chip */
+static void afh_poll(void)
+{
+    static const esp_bt_gap_afh_channels all = {
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+    };
+
+    if (!afh_held || ++afh_stream_s < BT_AFH_HOLD_S)
+        return;
+    if (esp_bt_gap_set_afh_channels((uint8_t *)all) != ESP_OK)
+        return;
+    afh_held = false;
+    afh_learn_from = bt_stats.afh_reads;
+}
+
 /* From the main thread, on SYS_BLUETOOTH_LOG_SAVE */
 void bt_log_autosave(void)
 {
-    if (bt_current_state != ESP_A2D_AUDIO_STATE_STARTED &&
-        bt_log_saved != bt_log_total)
+    if (bt_current_state == ESP_A2D_AUDIO_STATE_STARTED)
+        return;
+    if (bt_log_saved != bt_log_total)
         bt_log_write();
+    if (afh_learn_from != UINT32_MAX && bt_stats.afh_reads > afh_learn_from &&
+        bt_stats.afh_reads != afh_saved_reads)
+        afh_save();
 }
 
 uint32_t bt_codec_stack[DEFAULT_STACK_SIZE / sizeof(uint32_t)];
@@ -531,6 +646,60 @@ uint32_t bt_codec_stack[DEFAULT_STACK_SIZE / sizeof(uint32_t)];
  * The gap is invalid until the first tick after the stream starts. */
 static bt_stats_time_t tick_last;
 static bool tick_valid;
+
+#if CONFIG_CPU == X1000 && !defined(SIMULATOR)
+/* The media tick is woken by a hardware timer to the microsecond, not by
+ * the 10 ms kernel tick */
+#define BT_FINE_PACING
+static struct semaphore tick_sem;
+
+/* Interrupt context */
+static void tick_wake(void)
+{
+    semaphore_release(&tick_sem);
+}
+#endif
+
+uint64_t bt_time_us(void)
+{
+#if CONFIG_CPU == X1000 && !defined(SIMULATOR)
+    return __ost_read64() / OST_TICKS_PER_US;
+#else
+    return (uint64_t)current_tick * (1000000 / HZ);
+#endif
+}
+
+static uint32_t codec_period_us(void)
+{
+    if (current_codec->get_period_us != NULL)
+        return current_codec->get_period_us();
+    return current_codec->get_period() * 1000;
+}
+
+/* Block until bt_time_us() reaches 'when'; only yield if it has */
+static void wait_until_us(uint64_t when)
+{
+    uint64_t now = bt_time_us();
+
+    if (now >= when) {
+        yield();
+        return;
+    }
+
+    do {
+        uint64_t left = when - now;
+#ifdef BT_FINE_PACING
+        /* the timeout is a backstop; a stale release only costs a pass */
+        x1000_oneshot_start(left, tick_wake);
+        semaphore_wait(&tick_sem, left * HZ / 1000000 + 2);
+#else
+        /* sleep(n) blocks for n + 1 ticks */
+        long ticks = left * HZ / 1000000;
+        sleep(ticks > 1 ? ticks - 1 : 0);
+#endif
+        now = bt_time_us();
+    } while (now < when);
+}
 
 /* Once a second while streaming: the signal strength for the log, the answer
  * is picked up in bt_stats_hci_rx() */
@@ -543,7 +712,9 @@ static void bt_link_poll(void)
         return;
     next_poll = current_tick + HZ;
 
+    /* the channel map comes along, see BTM_ReadRSSI() */
     esp_bt_gap_read_rssi_delta((uint8_t *)peer);
+    afh_poll();
 }
 
 static void bt_codec_tick(void)
@@ -556,7 +727,7 @@ static void bt_codec_tick(void)
         uint32_t gap = BT_STATS_US(t - tick_last);
         gap_ms = gap / 1000;
         bt_stats_max(&bt_stats.a2d_tick_gap_us_max, gap);
-        if (gap > current_codec->get_period() * 1500) {
+        if (gap > codec_period_us() * 3 / 2) {
             bt_stats.a2d_tick_late++;
         }
     }
@@ -568,46 +739,37 @@ static void bt_codec_tick(void)
     uint32_t work = BT_STATS_US(bt_stats_now() - t);
     bt_stats_max(&bt_stats.a2d_work_us_max, work);
     work_us_sum += work;
-    period_us_sum += current_codec->get_period() * 1000;
+    period_us_sum += codec_period_us();
     bt_stats_max(&bt_stats.a2d_q_max, esp_a2d_source_audio_queue_len());
     bt_log_tick(gap_ms);
     bt_link_poll();
 }
 
+/* One media tick per codec period, on time to the microsecond where the
+ * target allows. A tick that runs late is followed at once by the ones it
+ * missed, with a yield between. */
 static void bt_codec_task(void)
 {
-    int64_t next_ms = (((int64_t)current_tick) * 1000) / HZ;
+    uint64_t next_us = bt_time_us();
     tick_valid = false;
+#ifdef BT_FINE_PACING
+    semaphore_init(&tick_sem, 1, 0);
+#endif
     while (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED && bt_current_state == ESP_A2D_AUDIO_STATE_STARTED) {
-        uint64_t ticked = 0;
-        do {
-            if (ticked > (1000 / HZ)) {
-                ticked %= (1000 / HZ);
-                yield();
-            }
-            if (current_codec == NULL) {
-                thread_exit();
-                return;
-            }
-            bt_codec_tick();
-            /* taken down while the tick waited somewhere */
-            if (current_codec == NULL) {
-                thread_exit();
-                return;
-            }
-            next_ms += current_codec->get_period();
-            ticked += current_codec->get_period();
-        } while ((next_ms * HZ) / 1000 <= current_tick);
-        /* sleep(n) blocks for n + 1 ticks: a 15 ms period slept as 2 ticks
-         * made the ticks fire in pairs every 30 ms */
-        long wait = ((next_ms * HZ) / 1000) - current_tick;
-        sleep(wait > 1 ? wait - 1 : 0);
+        if (current_codec == NULL)
+            break;
+        bt_codec_tick();
+        /* taken down while the tick waited somewhere */
+        if (current_codec == NULL)
+            break;
+        next_us += codec_period_us();
+        wait_until_us(next_us);
     }
-    if (current_codec == NULL) {
-        thread_exit();
-        return;
-    }
-    current_codec->feeding_flush();
+#ifdef BT_FINE_PACING
+    x1000_oneshot_stop();
+#endif
+    if (current_codec != NULL)
+        current_codec->feeding_flush();
     thread_exit();
 }
 
@@ -925,6 +1087,7 @@ void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 bt_current_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                 stream_check = STREAM_CHECK;
                 bt_volume_connected(param->conn_stat.remote_bda);
+                afh_seed();
                 /* 3 Mbps packets fail sooner as the signal weakens */
                 if (bt_tune.edr_2mbps)
                     esp_bt_gap_set_acl_pkt_types(param->conn_stat.remote_bda,

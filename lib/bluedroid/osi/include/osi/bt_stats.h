@@ -84,6 +84,11 @@ struct bt_stats {
     uint32_t hw_err;
     int8_t   rssi;              /* Read_RSSI: dB off the golden range */
 
+    /* Read_AFH_Channel_Map: bit n set while the link hops on channel n */
+    uint8_t  afh_map[10];
+    uint8_t  afh_chans;         /* channels in use, 0 until the first answer */
+    uint32_t afh_reads;         /* answers with AFH on, a new map each */
+
     /* A2DP source */
     uint32_t a2d_ticks;
     uint32_t a2d_tick_gap_us_max;
@@ -114,6 +119,10 @@ struct bt_stats {
     /* Transport errors the driver saw, e.g. UART overruns. Copied in by
      * the driver, so it's a running total that reset doesn't clear. */
     uint32_t drv_rx_errors;
+
+    /* The controller's sleep clock as the driver measured it at power-on,
+     * 0 if it couldn't */
+    uint32_t lpo_hz;
 };
 
 extern struct bt_stats bt_stats;

@@ -23,8 +23,8 @@
 /* bt_hci for the hw4 players' AzureWave AW-NM372 (CYW43438) on UART0:
  * Broadcom patch RAM download, then H4 at 3 Mbaud with RTS/CTS, in the
  * order the OF's brcm_patchram_plus uses. The OF also enables the chip's
- * UART sleep mode; it was tried and found worse for the stream, so the
- * chip is kept awake with HOST_WAKE_BT high. */
+ * UART sleep mode; it was tried and found worse for the stream, so it is
+ * turned off, whatever the patch defaults to, and HOST_WAKE_BT stays high. */
 
 /*#define LOGF_ENABLE*/
 #include "system.h"
@@ -65,7 +65,11 @@
 #define HCI_READ_BD_ADDR        0x1009
 #define BCM_WRITE_BD_ADDR       0xfc01
 #define BCM_UPDATE_BAUD         0xfc18
+#define BCM_SLEEP_MODE          0xfc27
 #define BCM_DOWNLOAD_MINIDRIVER 0xfc2e
+
+/* How long the sleep clock's edges are counted at power-on */
+#define LPO_MEASURE_US          2000
 
 static const esp_bluedroid_hci_driver_callbacks_t *hci_callbacks;
 static struct semaphore hci_callbacks_sem;
@@ -276,6 +280,35 @@ static inline void hci_log_packet(const uint8_t *data, size_t len,
 }
 #endif
 
+/* The sleep clock's frequency as seen on its pin, for the debug screen: 0
+ * if no edges show, which is no clock or a pin that doesn't read back while
+ * it is a clock output. Interrupts are off for the count, so none is
+ * missed. */
+static uint32_t lpo_measure(void)
+{
+    const uint32_t bit = 1 << 26;
+    uint32_t first = 0, last = 0, edges = 0;
+
+    int irq = disable_irq_save();
+    uint32_t start = __ost_read32();
+    uint32_t level = REG_GPIO_PIN(GPIO_B) & bit;
+    uint32_t now;
+    while((now = __ost_read32()) - start < LPO_MEASURE_US * OST_TICKS_PER_US) {
+        uint32_t l = REG_GPIO_PIN(GPIO_B) & bit;
+        if(l && !level) {
+            if(edges++ == 0)
+                first = now;
+            last = now;
+        }
+        level = l;
+    }
+    restore_irq(irq);
+
+    if(edges < 2)
+        return 0;
+    return (uint64_t)(edges - 1) * OST_FREQUENCY / (last - first);
+}
+
 static void chip_power(bool on)
 {
     /* BT_PWR, the OF's "BT Power" GPIO 86, is an output held low at boot
@@ -290,6 +323,7 @@ static void chip_power(bool on)
         gpio_set_level(GPIO_HOST_WAKE_BT, 1);
         gpio_set_function(GPIO_PB(26), GPIOF_DEVICE(0));
         sleep(HZ/100 + 1);
+        bt_stats.lpo_hz = lpo_measure();
         if(bt_pwr_pin) {
             gpio_set_level(GPIO_BT_PWR, 1);
             sleep(HZ/100 + 1);
@@ -336,6 +370,18 @@ static bool reset_and_speed_up(void)
     uart_set_baud(BT_UART, H4_BAUD);
     sleep(HZ/100 + 1);
     return true;
+}
+
+/* Sleep mode 0, none: the patch's own default is unknown, and a chip that
+ * naps holds up the stream. BT_WAKE and HOST_WAKE stay active high. A chip
+ * that refuses the command runs as the patch left it. */
+static void disable_sleep_mode(void)
+{
+    static const uint8_t params[12] = {
+        0x00, 0x00, 0x00, 0x01, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    init_cmd(BCM_SLEEP_MODE, params, sizeof(params));
 }
 
 /* Each .hcd record is an HCI command: opcode, length, parameters. The
@@ -518,6 +564,7 @@ void bt_hci_enable(void)
     if(!reset_and_speed_up())
         goto fail;
 
+    disable_sleep_mode();
     set_unit_addr();
 
     hci_callbacks = NULL;

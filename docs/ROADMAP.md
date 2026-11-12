@@ -142,6 +142,39 @@ was on "T33" true-wireless earbuds (log 6, SBC) and an aptX headset (log 7).
   catches up, so the cost is a burst of two packets, not a gap. To find it, log
   what the thread was waiting on, or sample the thread that ran during the gap.
 
+- **Warm-up, and gaps on the T33.** Open; five changes built, not yet run.
+  2026-11-11 report on the current build: the link grows steadier after a
+  while connected, and short gaps remain, mostly on the T33. No log; the
+  changes below were picked from the code, not from a measurement.
+  - *SBC sent part packets at 100 a second.* The 10 ms tick (Fixed, SBC sent
+    packets in pairs) sent whatever audio was due, 3 or 4 frames, at full
+    bitpool: 100 packets a second against 68.9 of 5 frames at 20 ms
+    (`scratch/sbc_pacing.py`). The tick now runs once per full packet, woken
+    by a hardware timer (TCU channel 6) instead of the kernel tick, and only
+    full packets go, on EDR and non-EDR links alike (AOSP's non-EDR path sent
+    whatever was due): 68.9 a second, gaps 12.5–16.5 ms with wake-ups up to 2
+    ms late; 43 a second at 8 frames (bitpool 30). aptX's 13–15 ms periods
+    run exact too. The bitpool adaptation's hold and recovery are in time
+    now, not ticks.
+  - *Channel map kept between connections* (`/.rockbox/bt_afh.txt`). The
+    RSSI poll also reads the link's AFH map; a map read once the chip chose
+    alone is saved when the stream stops. On connecting, a saved map under a
+    day old with 20 to 78 channels is set as the host classification, then
+    released after 60 s of streaming. Debug screen: `afh` (channels now,
+    seed, `held` or `free`).
+  - *Chip sleep mode turned off explicitly* (0xFC27, mode 0) after the
+    patch loads; before, it was left at the patch's own default.
+  - *Sleep clock measured at power-on*: rising edges on PB26 over 2 ms, on
+    the debug screen as `lpo`. 32768 is right; 0 is no clock or a pin that
+    doesn't read back as an output, which then needs a scope. The vendor
+    kernel selects the same pin function (`rtc32k-enable`, function 0) and
+    no RTC register, so the code matches the OF.
+  - *No sniff on the A2DP link*: it went into sniff after 7 s open or idle,
+    which a stream start had to leave first.
+  - To read on the next listen: `lpo`, `afh` after a minute and after a
+    reconnect, `tick late`, and whether the warm-up and the T33's gaps
+    change.
+
 ## Hardware pass
 
 - **The T33 earbuds again on the current build.** Small, a listen and a log.
@@ -251,10 +284,11 @@ was on "T33" true-wireless earbuds (log 6, SBC) and an aptX headset (log 7).
   values are unchanged, so a device set to a codec by hand keeps it until its
   Options say Best Available. The debug screen's `codec` line shows no `want`
   on Best Available.
-- **SBC sent packets in pairs.** 2026-11-03, built, not yet run. The encoder
-  paces by elapsed time and sends whole packets of about 14.5 ms of audio, so a
-  20 ms tick sent one packet on some ticks and two on others. The tick is 10 ms
-  now, one packet at most; the bitpool adaptation's tick counts scale with it.
+- **SBC sent packets in pairs.** 2026-11-03. The encoder paces by elapsed
+  time and sends whole packets of about 14.5 ms of audio, so a 20 ms tick sent
+  one packet on some ticks and two on others. The 10 ms tick that replaced it
+  sent part packets at 100 a second; replaced on 2026-11-11 by a tick per full
+  packet (Faults, Warm-up).
   Log 8 showed the chip holding packets far less once aptX's sends were evened
   out, which is the reason.
 - **Codec ticks fired in pairs on a 15 ms period.** 2026-11-03. `sleep(n)`

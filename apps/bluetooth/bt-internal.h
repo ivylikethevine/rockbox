@@ -38,6 +38,8 @@ bool bt_a2d_register_endpoint(void);
 /* bt.c, for the encoders in codecs/: the PCM to send, silence while
  * nothing plays */
 size_t bt_read_pcm(uint8_t *buf, size_t len);
+/* bt.c, for the encoders: microseconds on a clock finer than the tick */
+uint64_t bt_time_us(void);
 
 /* bt.c: test settings, read when Bluetooth starts */
 struct bt_tune {

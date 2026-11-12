@@ -1795,6 +1795,30 @@ BOOLEAN btsnd_hcic_read_rssi (UINT16 handle)
     return (TRUE);
 }
 
+/* Rockbox: nothing waits for the answer, bt_stats picks it up */
+BOOLEAN btsnd_hcic_read_afh_ch_map (UINT16 handle)
+{
+    BT_HDR *p;
+    UINT8 *pp;
+
+    if ((p = HCI_GET_CMD_BUF(HCIC_PARAM_SIZE_CMD_HANDLE)) == NULL) {
+        return (FALSE);
+    }
+
+    pp = (UINT8 *)(p + 1);
+
+    p->len    = HCIC_PREAMBLE_SIZE + HCIC_PARAM_SIZE_CMD_HANDLE;
+    p->offset = 0;
+
+    UINT16_TO_STREAM (pp, HCI_READ_AFH_CH_MAP);
+    UINT8_TO_STREAM  (pp, HCIC_PARAM_SIZE_CMD_HANDLE);
+
+    UINT16_TO_STREAM (pp, handle);
+
+    btu_hcif_send_cmd (LOCAL_BR_EDR_CONTROLLER_ID,  p);
+    return (TRUE);
+}
+
 BOOLEAN btsnd_hcic_enable_test_mode (void)
 {
     BT_HDR *p;

@@ -49,6 +49,10 @@ void bt_stats_reset(void)
     bt_stats.slots = keep.slots;
     bt_stats.pkt_type = keep.pkt_type;
     bt_stats.rssi = keep.rssi;
+    memcpy(bt_stats.afh_map, keep.afh_map, sizeof(bt_stats.afh_map));
+    bt_stats.afh_chans = keep.afh_chans;
+    bt_stats.afh_reads = keep.afh_reads;
+    bt_stats.lpo_hz = keep.lpo_hz;
     bt_stats.a2d_bitpool = keep.a2d_bitpool;
     bt_stats.a2d_bp_min = keep.a2d_bitpool;
     bt_stats.a2d_bitrate = keep.a2d_bitrate;
@@ -136,6 +140,16 @@ void bt_stats_hci_rx(const uint8_t *data, uint16_t len)
         case 0x1405: /* Read_RSSI */
             if(plen >= 7)
                 bt_stats.rssi = (int8_t)p[6];
+            break;
+        case 0x1406: /* Read_AFH_Channel_Map, with AFH on */
+            if(plen >= 17 && p[6] == 1) {
+                int chans = 0;
+                for(int i = 0; i < 79; ++i)
+                    chans += (p[7 + i / 8] >> (i % 8)) & 1;
+                memcpy(bt_stats.afh_map, &p[7], sizeof(bt_stats.afh_map));
+                bt_stats.afh_chans = chans;
+                bt_stats.afh_reads++;
+            }
             break;
         }
         break;

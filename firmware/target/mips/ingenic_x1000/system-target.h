@@ -152,4 +152,10 @@ static inline void __ost_delay(uint32_t count)
     while(__ost_read32() - start < count);
 }
 
+/* One-shot wake-up finer than the kernel tick, for one user at a time:
+ * 'fn' runs once in interrupt context, 'us' microseconds from now (174 ms
+ * at most), unless stopped or started again first. */
+extern void x1000_oneshot_start(uint32_t us, void (*fn)(void));
+extern void x1000_oneshot_stop(void);
+
 #endif /* __SYSTEM_TARGET_H__ */

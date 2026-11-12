@@ -38,9 +38,8 @@
 #define A2DP_SBC_BUFFER_SIZE BT_DEFAULT_BUFFER_SIZE
 
 // A2DP SBC encoder interval in milliseconds.
-/* 10 rather than AOSP's 20: a packet holds about 14.5 ms of audio, so a 20
- * ms tick sent one packet or two, and the chip held the pairs longer; at 10
- * ms it is one at most, since the budget follows elapsed time */
+/* The unit of bytes_per_tick only: the media tick runs once per full
+ * packet of audio, see a2dp_sbc_get_period_us() */
 #define A2DP_SBC_ENCODER_INTERVAL_MS 10
 
 /* High quality quality setting @ 44.1 khz */
@@ -124,19 +123,20 @@ static tA2DP_SBC_ENCODER_CB a2dp_sbc_encoder_cb;
 #define DYN_BP_BACKLOG_HIGH     bt_tune.bp_backlog  /* media packets */
 #define DYN_BP_BACKLOG_LOW      1
 #define DYN_BP_DOWN_STEP        bt_tune.bp_down_step
-#define DYN_BP_DOWN_TICKS       (150 / A2DP_SBC_ENCODER_INTERVAL_MS)
+#define DYN_BP_DOWN_US          150000
 #define DYN_BP_UP_STEP          bt_tune.bp_up_step
-#define DYN_BP_UP_TICKS         (bt_tune.bp_up_ms / A2DP_SBC_ENCODER_INTERVAL_MS)
+#define DYN_BP_UP_US            (bt_tune.bp_up_ms * 1000)
 
 static struct {
   int16_t min;
   int16_t max;                  /* 0: not set up, leave it alone */
-  uint16_t hold;
-  uint16_t clean;
+  uint32_t hold_us;             /* no further step down until it is spent */
+  uint32_t clean_us;            /* time with no backlog */
   uint32_t last_backlog;
 } dyn_bp;
 
 static uint8_t calculate_max_frames_per_packet(void);
+uint32_t a2dp_sbc_get_period_us(void);
 
 static void a2dp_sbc_dyn_bitpool_init(int16_t min, int16_t max) {
   dyn_bp.min = (min > DYN_BP_FLOOR) ? min : DYN_BP_FLOOR;
@@ -144,8 +144,8 @@ static void a2dp_sbc_dyn_bitpool_init(int16_t min, int16_t max) {
   if (dyn_bp.min > dyn_bp.max) {
     dyn_bp.min = dyn_bp.max;
   }
-  dyn_bp.hold = 0;
-  dyn_bp.clean = 0;
+  dyn_bp.hold_us = 0;
+  dyn_bp.clean_us = 0;
   dyn_bp.last_backlog = 0;
 
   bt_stats.a2d_bitpool = max;
@@ -155,6 +155,8 @@ static void a2dp_sbc_dyn_bitpool_init(int16_t min, int16_t max) {
 static void a2dp_sbc_dyn_bitpool(void) {
   SBC_ENC_PARAMS* enc = &a2dp_sbc_encoder_cb.sbc_encoder_params;
   uint32_t backlog;
+  /* The time this tick stands for: the tick runs once per packet */
+  uint32_t tick_us = a2dp_sbc_get_period_us();
 
   if (dyn_bp.max == 0) {
     return;
@@ -162,34 +164,32 @@ static void a2dp_sbc_dyn_bitpool(void) {
 
   backlog = esp_a2d_source_audio_queue_len() + bta_av_a2d_backlog;
 
-  if (dyn_bp.hold > 0) {
-    dyn_bp.hold--;
-  }
+  dyn_bp.hold_us = (dyn_bp.hold_us > tick_us) ? dyn_bp.hold_us - tick_us : 0;
 
   if (backlog >= DYN_BP_BACKLOG_HIGH) {
-    dyn_bp.clean = 0;
+    dyn_bp.clean_us = 0;
     /* Step again only if the last step didn't get it draining */
-    if (dyn_bp.hold == 0 && backlog >= dyn_bp.last_backlog &&
+    if (dyn_bp.hold_us == 0 && backlog >= dyn_bp.last_backlog &&
         enc->s16BitPool > dyn_bp.min) {
       enc->s16BitPool -= DYN_BP_DOWN_STEP;
       if (enc->s16BitPool < dyn_bp.min) {
         enc->s16BitPool = dyn_bp.min;
       }
-      dyn_bp.hold = DYN_BP_DOWN_TICKS;
+      dyn_bp.hold_us = DYN_BP_DOWN_US;
       dyn_bp.last_backlog = backlog;
       bt_stats.a2d_bp_down++;
     }
   } else {
     dyn_bp.last_backlog = 0;
     if (backlog > DYN_BP_BACKLOG_LOW) {
-      dyn_bp.clean = 0;
-    } else if (++dyn_bp.clean >= DYN_BP_UP_TICKS &&
+      dyn_bp.clean_us = 0;
+    } else if ((dyn_bp.clean_us += tick_us) >= (uint32_t)DYN_BP_UP_US &&
                enc->s16BitPool < dyn_bp.max) {
       enc->s16BitPool += DYN_BP_UP_STEP;
       if (enc->s16BitPool > dyn_bp.max) {
         enc->s16BitPool = dyn_bp.max;
       }
-      dyn_bp.clean = 0;
+      dyn_bp.clean_us = 0;
       bt_stats.a2d_bp_up++;
     }
   }
@@ -460,8 +460,30 @@ void a2dp_sbc_feeding_flush(void) {
 
 uint64_t a2dp_sbc_get_encoder_interval_ms(void) { return A2DP_SBC_ENCODER_INTERVAL_MS; }
 
+static uint32_t sbc_rate_hz(void) {
+  switch (a2dp_sbc_encoder_cb.sbc_encoder_params.s16SamplingFreq) {
+    case SBC_sf16000: return 16000;
+    case SBC_sf32000: return 32000;
+    case SBC_sf44100: return 44100;
+    default:          return 48000;
+  }
+}
+
+/* The audio in one full packet: the tick sends one packet each time, evenly
+ * spaced, rather than a part packet at a fixed interval */
+uint32_t a2dp_sbc_get_period_us(void) {
+  SBC_ENC_PARAMS* p = &a2dp_sbc_encoder_cb.sbc_encoder_params;
+  uint32_t frames = a2dp_sbc_encoder_cb.tx_sbc_frames;
+  uint32_t samples = p->s16NumOfBlocks * p->s16NumOfSubBands;
+
+  if (frames == 0 || samples == 0) {
+    return A2DP_SBC_ENCODER_INTERVAL_MS * 1000;
+  }
+  return (uint64_t)frames * samples * 1000000 / sbc_rate_hz();
+}
+
 void a2dp_sbc_send_frames(void) {
-  uint64_t timestamp_us = ((uint64_t) current_tick) * (1000000 / HZ);
+  uint64_t timestamp_us = bt_time_us();
   uint8_t nb_frame = 0;
   uint8_t nb_iterations = 0;
 
@@ -516,46 +538,34 @@ static void a2dp_sbc_get_num_frame_iteration(uint8_t* num_of_iterations, uint8_t
     projected_nof = MAX_PCM_FRAME_NUM_PER_TICK;
   }
 
-  if (a2dp_sbc_encoder_cb.peer_is_edr) {
-    if (!a2dp_sbc_encoder_cb.tx_sbc_frames) {
-      a2dp_sbc_encoder_cb.tx_sbc_frames = calculate_max_frames_per_packet();
-    }
+  /* EDR or not, the MTU sets the frames in a packet: AOSP's BR path sent
+   * whatever was due each tick, a part packet as often as not */
+  if (!a2dp_sbc_encoder_cb.tx_sbc_frames) {
+    a2dp_sbc_encoder_cb.tx_sbc_frames = calculate_max_frames_per_packet();
+  }
 
-    nof = a2dp_sbc_encoder_cb.tx_sbc_frames;
-    if (!nof) {
-      nof = projected_nof;
-      noi = 1;
+  nof = a2dp_sbc_encoder_cb.tx_sbc_frames;
+  if (!nof) {
+    nof = projected_nof;
+    noi = 1;
+  } else {
+    if (nof < projected_nof) {
+      noi = projected_nof / nof;  // number of iterations would vary
+      if (noi > A2DP_SBC_MAX_PCM_ITER_NUM_PER_TICK) {
+        noi = A2DP_SBC_MAX_PCM_ITER_NUM_PER_TICK;
+        a2dp_sbc_encoder_cb.feeding_state.counter = noi * nof * (float)pcm_bytes_per_frame;
+      }
+      projected_nof = nof;
     } else {
-      if (nof < projected_nof) {
-        noi = projected_nof / nof;  // number of iterations would vary
-        if (noi > A2DP_SBC_MAX_PCM_ITER_NUM_PER_TICK) {
-          noi = A2DP_SBC_MAX_PCM_ITER_NUM_PER_TICK;
-          a2dp_sbc_encoder_cb.feeding_state.counter = noi * nof * (float)pcm_bytes_per_frame;
-        }
-        projected_nof = nof;
+      noi = 1;  // number of iterations is 1
+      /* Only full packets: on the air a part packet costs about as much
+       * as a full one */
+      if (projected_nof < nof) {
+        nof = 0;
       } else {
-        noi = 1;  // number of iterations is 1
-        /* While the bitpool is cut, wait for a full packet */
-        if (projected_nof < nof &&
-            a2dp_sbc_encoder_cb.sbc_encoder_params.s16BitPool < dyn_bp.max) {
-          nof = 0;
-        } else {
-          nof = projected_nof;
-        }
+        nof = projected_nof;
       }
     }
-  } else {
-    // For BR cases nof will be same as the value retrieved at projected_nof
-    if (projected_nof > MAX_PCM_FRAME_NUM_PER_TICK) {
-      // Update the stats
-      size_t delta = projected_nof - MAX_PCM_FRAME_NUM_PER_TICK;
-      a2dp_sbc_encoder_cb.stats.media_read_total_dropped_frames += delta;
-
-      projected_nof = MAX_PCM_FRAME_NUM_PER_TICK;
-      a2dp_sbc_encoder_cb.feeding_state.counter =
-              (float)noi * (float)projected_nof * (float)pcm_bytes_per_frame;
-    }
-    nof = projected_nof;
   }
   a2dp_sbc_encoder_cb.feeding_state.counter -= noi * nof * (float)pcm_bytes_per_frame;
 
@@ -844,6 +854,7 @@ struct a2dp_codec a2dp_codec_sbc = {
     .init = a2dp_sbc_encoder_init,
     .deinit = a2dp_sbc_encoder_cleanup,
     .get_period = a2dp_sbc_get_encoder_interval_ms,
+    .get_period_us = a2dp_sbc_get_period_us,
     .tick = a2dp_sbc_send_frames,
     .set_freq = sbc_set_freq,
     .feeding_reset = a2dp_sbc_feeding_reset,

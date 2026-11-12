@@ -19,9 +19,69 @@
  ****************************************************************************/
 
 #include "timer.h"
+#include "system.h"
+#include "irq-x1000.h"
 #include "x1000/tcu.h"
 
 #define TIMER_CHN 5
+
+/* The one-shot's channel: like every channel but 5 it interrupts on TCU2,
+ * where the others stay masked */
+#define ONESHOT_CHN 6
+#define ONESHOT_FREQ (X1000_EXCLK_FREQ / 64)
+
+static void (*oneshot_fn)(void);
+
+static void oneshot_off(void)
+{
+    jz_clr(TCU_ENABLE, 1 << ONESHOT_CHN);
+    jz_set(TCU_MASK, 1 << ONESHOT_CHN);
+    jz_clr(TCU_FLAG, 1 << ONESHOT_CHN);
+    jz_set(TCU_STOP, 1 << ONESHOT_CHN);
+}
+
+void x1000_oneshot_start(uint32_t us, void (*fn)(void))
+{
+    uint32_t count = (uint64_t)us * ONESHOT_FREQ / 1000000;
+    if(count < 1)
+        count = 1;
+    if(count > 0xffff)
+        count = 0xffff;
+
+    int irq = disable_irq_save();
+    oneshot_fn = fn;
+    jz_clr(TCU_STOP, 1 << ONESHOT_CHN);
+    jz_clr(TCU_ENABLE, 1 << ONESHOT_CHN);
+    jz_overwritef(TCU_CTRL(ONESHOT_CHN), SOURCE_V(EXT), PRESCALE_V(BY_64));
+    REG_TCU_COUNT(ONESHOT_CHN) = 0;
+    jz_write(TCU_CMP_FULL(ONESHOT_CHN), count);
+    jz_write(TCU_CMP_HALF(ONESHOT_CHN), 0);
+    jz_clr(TCU_FLAG, 1 << ONESHOT_CHN);
+    jz_clr(TCU_MASK, 1 << ONESHOT_CHN);
+    system_enable_irq(IRQ_TCU2);
+    jz_set(TCU_ENABLE, 1 << ONESHOT_CHN);
+    restore_irq(irq);
+}
+
+void x1000_oneshot_stop(void)
+{
+    int irq = disable_irq_save();
+    oneshot_off();
+    oneshot_fn = NULL;
+    restore_irq(irq);
+}
+
+void TCU2(void)
+{
+    if(!(REG_TCU_FLAG & (1 << ONESHOT_CHN)))
+        return;
+
+    void (*fn)(void) = oneshot_fn;
+    oneshot_off();
+    oneshot_fn = NULL;
+    if(fn)
+        fn();
+}
 
 bool timer_set(long cycles, bool start)
 {
